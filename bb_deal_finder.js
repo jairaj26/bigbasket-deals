@@ -136,32 +136,40 @@
                 break;
             }
 
-            let maxDiscInPage = 0;
+            let currentPageItems = [];
 
             prods.forEach(p => {
                 const parentItem = processProduct(p, cat.slug, cat.name);
                 if (parentItem) {
-                    items.push(parentItem);
-                    if (parentItem.disc > maxDiscInPage) maxDiscInPage = parentItem.disc;
+                    currentPageItems.push(parentItem);
                 }
 
                 if (p.children && Array.isArray(p.children)) {
                     p.children.forEach(child => {
                         const childItem = processProduct(child, cat.slug, cat.name);
                         if (childItem) {
-                            items.push(childItem);
-                            if (childItem.disc > maxDiscInPage) maxDiscInPage = childItem.disc;
+                            currentPageItems.push(childItem);
                         }
                     });
                 }
             });
 
-            // If the highest discount on this sorted page is less than minimum discount threshold, stop scanning further pages
-            if (maxDiscInPage < CONFIG.minDiscount) {
-                console.log(`[BB Sniper] Dropping ${cat.name} at P${page} (Max deal was ${maxDiscInPage.toFixed(0)}% < ${CONFIG.minDiscount}%)`);
-                more = false;
+            // Always add all items from the current page (Page 1 is always fully retained)
+            items.push(...currentPageItems);
+
+            // Pagination condition:
+            // Since BigBasket sort=dphtl orders descending by discount %,
+            // check the LAST item on the page. If its discount is >= CONFIG.minDiscount (70%),
+            // then subsequent pages may have more >=70% deals. Otherwise, stop fetching further pages.
+            if (currentPageItems.length > 0) {
+                const lastItem = currentPageItems[currentPageItems.length - 1];
+                if (lastItem.disc >= CONFIG.minDiscount) {
+                    page++;
+                } else {
+                    more = false;
+                }
             } else {
-                page++;
+                more = false;
             }
         }
 
