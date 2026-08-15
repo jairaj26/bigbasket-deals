@@ -14,7 +14,7 @@ A lightweight, high-performance bookmarklet and category scanner to find the bes
 Copy and paste the following snippet into the **URL** field:
 
 ```javascript
-javascript:(function(){const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/JairamS/BigBasket@main/bb_deal_finder.js?t='+Date.now();document.body.appendChild(s);})();
+javascript:(function(){const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/jairaj26/bigbasket-deals@main/bb_deal_finder.js?t='+Date.now();document.body.appendChild(s);})();
 ```
 
 > **Note:** The `?t=...` cache-buster parameter ensures you always fetch the latest version of the script.
