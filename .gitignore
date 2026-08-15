@@ -1,0 +1,4 @@
+# Scratch and dump data files
+*.txt
+.system_generated/
+*.log
