@@ -4,7 +4,9 @@
  *
  * Features:
  * - Mobile & Desktop friendly Floating Action Button (FAB) + Popover.
- * - Categorized deal scanner with pagination & discount threshold filtering.
+ * - Always includes ALL Page 1 items for every category.
+ * - Paginates to Page 2+ only if all items on current page are >=50% OFF (last item >= 50%).
+ * - Resilient multi-tab product extraction with automatic fallback for endpoint types (sis/pc/ps).
  * - Dynamic "Fetch" button (disabled until at least 1 category is selected).
  * - Automatic uncheck upon fetch completion.
  * - Live progress bar & status updates during network fetching.
@@ -27,9 +29,9 @@
 
     // --- Configuration ---
     const CONFIG = {
-        delayMin: 800,
-        delayMax: 1800,
-        minDiscount: 70,
+        delayMin: 600,
+        delayMax: 1400,
+        minDiscount: 50, // 50% cutoff for pagination
         maxPages: 6,
         getHeaders: () => ({
             "accept": "*/*",
@@ -83,27 +85,71 @@
         }
     };
 
+    const extractProductsFromResponse = (data) => {
+        if (!data) return [];
+
+        // 1. Search in tabs
+        if (data.tabs && Array.isArray(data.tabs)) {
+            for (const tab of data.tabs) {
+                if (tab?.product_info?.products && Array.isArray(tab.product_info.products) && tab.product_info.products.length > 0) {
+                    return tab.product_info.products;
+                }
+            }
+        }
+
+        // 2. Direct product_info
+        if (data.product_info?.products && Array.isArray(data.product_info.products)) {
+            return data.product_info.products;
+        }
+
+        // 3. Direct products array
+        if (Array.isArray(data.products)) {
+            return data.products;
+        }
+
+        // 4. In data.data or nested
+        if (data.data?.product_info?.products) {
+            return data.data.product_info.products;
+        }
+
+        return [];
+    };
+
     const processProduct = (p, catSlug, catName) => {
-        const mrp = parseFloat(p.pricing?.discount?.mrp || p.pricing?.mrp || 0);
-        const sp = parseFloat(p.pricing?.discount?.prim_price?.sp || p.pricing?.offer_price || 0);
+        if (!p) return null;
+
+        const mrp = parseFloat(p.pricing?.discount?.mrp || p.pricing?.mrp || p.mrp || 0);
+        let sp = parseFloat(p.pricing?.discount?.prim_price?.sp || p.pricing?.offer_price || p.pricing?.sp || p.sp || 0);
+        
+        if (sp <= 0 && mrp > 0) {
+            sp = mrp;
+        }
+
         const disc = mrp > 0 && sp > 0 ? ((mrp - sp) / mrp) * 100 : 0;
         const savings = Math.max(0, mrp - sp);
-        const isAvail = p.availability?.avail_status === '001';
 
-        if (isAvail && mrp > 0 && sp > 0) {
+        // Check availability (treat as available unless explicitly marked out of stock '002')
+        let isAvail = true;
+        if (p.availability) {
+            if (p.availability.avail_status === '002' || p.availability.is_available === false) {
+                isAvail = false;
+            }
+        }
+
+        if (isAvail && (mrp > 0 || sp > 0)) {
             const productUrl = p.absolute_url 
                 ? (p.absolute_url.startsWith('http') ? p.absolute_url : 'https://www.bigbasket.com' + p.absolute_url)
-                : `https://www.bigbasket.com/pd/${p.id}`;
+                : `https://www.bigbasket.com/pd/${p.id || ''}`;
 
             return {
                 id: p.id || Math.random().toString(36).substring(7),
-                name: (p.desc || p.p_desc || 'Product') + (p.w ? ` (${p.w})` : ''),
-                brand: p.brand?.name || p.p_brand || 'BigBasket',
+                name: (p.desc || p.p_desc || p.name || 'Product') + (p.w ? ` (${p.w})` : ''),
+                brand: p.brand?.name || p.p_brand || p.brand || 'BigBasket',
                 mrp: parseFloat(mrp.toFixed(2)),
                 sp: parseFloat(sp.toFixed(2)),
                 savings: parseFloat(savings.toFixed(2)),
                 disc: parseFloat(disc.toFixed(1)),
-                img: p.images?.[0]?.s || p.images?.[0]?.m || p.images?.[0]?.l || 'https://www.bigbasket.com/static/images/default.jpg',
+                img: p.images?.[0]?.s || p.images?.[0]?.m || p.images?.[0]?.l || p.image_url || 'https://www.bigbasket.com/static/images/default.jpg',
                 cat: catName,
                 slug: catSlug,
                 url: productUrl
@@ -125,12 +171,26 @@
             if (onProgress) onProgress(`Scanning ${cat.name} (P${page})...`);
 
             const url = `https://www.bigbasket.com/listing-svc/v2/products?type=${cat.type}&slug=${cat.slug}&page=${page}&sort=dphtl`;
-            const data = await fetchJSON(url);
+            let data = await fetchJSON(url);
+
+            // Resilient fallback for endpoint types on page 1 if empty
+            if (page === 1 && !extractProductsFromResponse(data).length) {
+                const altTypes = ['pc', 'sis', 'ps', 'cl'].filter(t => t !== cat.type);
+                for (const altType of altTypes) {
+                    const altUrl = `https://www.bigbasket.com/listing-svc/v2/products?type=${altType}&slug=${cat.slug}&page=${page}&sort=dphtl`;
+                    const altData = await fetchJSON(altUrl);
+                    if (extractProductsFromResponse(altData).length > 0) {
+                        data = altData;
+                        cat.type = altType;
+                        break;
+                    }
+                }
+            }
 
             const randomDelay = Math.floor(Math.random() * (CONFIG.delayMax - CONFIG.delayMin + 1)) + CONFIG.delayMin;
             await sleep(randomDelay);
 
-            const prods = data?.tabs?.[0]?.product_info?.products;
+            const prods = extractProductsFromResponse(data);
             if (!prods || !prods.length) {
                 more = false;
                 break;
@@ -154,14 +214,15 @@
                 }
             });
 
-            // Always add all items from the current page (Page 1 is always fully retained)
-            items.push(...currentPageItems);
-
-            // Pagination condition:
-            // Since BigBasket sort=dphtl orders descending by discount %,
-            // check the LAST item on the page. If its discount is >= CONFIG.minDiscount (70%),
-            // then subsequent pages may have more >=70% deals. Otherwise, stop fetching further pages.
+            // Always add all items from the current page (Page 1 is ALWAYS included)
             if (currentPageItems.length > 0) {
+                items.push(...currentPageItems);
+
+                // Pagination condition:
+                // Since BigBasket sort=dphtl orders descending by discount %,
+                // check if the LAST item on the page has discount >= CONFIG.minDiscount (50%).
+                // If last item >= 50%, all items on this page were >= 50%, so move to next page.
+                // If last item < 50%, discounts have dropped below 50% -> stop pagination.
                 const lastItem = currentPageItems[currentPageItems.length - 1];
                 if (lastItem.disc >= CONFIG.minDiscount) {
                     page++;
@@ -485,7 +546,7 @@
                 font-size: 13px;
                 font-weight: 700;
                 box-shadow: 0 4px 12px rgba(25, 118, 210, 0.3);
-                display: none; /* Initially hidden until items are fetched */
+                display: none;
                 border: none;
                 cursor: pointer;
                 align-items: center;
@@ -533,7 +594,7 @@
                 <div class="bb-cat-list" id="bb-cat-list"></div>
 
                 <div class="bb-status-box">
-                    <div class="bb-status-text" id="bb-status-text">Ready to scan (≥${CONFIG.minDiscount}% OFF deals)</div>
+                    <div class="bb-status-text" id="bb-status-text">Ready to scan (Page 1 + ≥50% deals)</div>
                     <div class="bb-progress" id="bb-progress">
                         <div class="bb-progress-bar"></div>
                     </div>
@@ -692,29 +753,41 @@
             }
         }
 
-        // 🎯 Once fetched, uncheck all checkboxes
+        // De-duplicate products by ID
+        const seenIds = new Set();
+        const uniqueProducts = [];
+        for (const p of allProducts) {
+            if (!seenIds.has(p.id)) {
+                seenIds.add(p.id);
+                uniqueProducts.push(p);
+            }
+        }
+        allProducts = uniqueProducts;
+
+        // Uncheck all category checkboxes after fetch
         document.querySelectorAll('.bb-cat-cb').forEach(cb => {
             cb.checked = false;
         });
 
         // Update counts and reset busy state
-        setBusyState(false, `✅ Done! Found ${allProducts.length} deals.`);
+        const uniqueCatCount = new Set(allProducts.map(p => p.cat)).size;
+        setBusyState(false, `✅ Done! Found ${allProducts.length} items across ${uniqueCatCount} categories.`);
 
         const countLabel = document.getElementById('bb-cat-selected-count');
         if (countLabel) countLabel.innerText = 'Select Categories';
 
         const fetchBtn = document.getElementById('bb-fetch-btn');
         if (fetchBtn) {
-            fetchBtn.disabled = true; // Disabled because no items are checked now
+            fetchBtn.disabled = true;
             fetchBtn.innerText = '⚡ Fetch';
         }
 
-        // 🎯 Show the "Open Deals in New Tab" button once items are fetched
+        // Show the "Open Deals in New Tab" button
         const openTabBtn = document.getElementById('bb-open-tab-btn');
         if (openTabBtn) {
             if (allProducts.length > 0) {
                 openTabBtn.style.display = 'flex';
-                openTabBtn.innerText = `🖥️ View ${allProducts.length} Deals in New Tab ↗`;
+                openTabBtn.innerText = `🖥️ View ${allProducts.length} Items in New Tab ↗`;
             } else {
                 openTabBtn.style.display = 'none';
             }
@@ -966,6 +1039,10 @@
             z-index: 2;
         }
 
+        .badge-discount.badge-low {
+            background: #4b5563;
+        }
+
         .badge-savings {
             position: absolute;
             top: 10px;
@@ -1099,7 +1176,7 @@
             <div class="header-top">
                 <div class="brand-title">
                     <h1>🛒 BigBasket Deals Dashboard</h1>
-                    <span class="pill-count" id="total-badge">0 Deals</span>
+                    <span class="pill-count" id="total-badge">0 Items</span>
                 </div>
                 <div class="header-actions">
                     <button class="btn-action" id="btn-export">📥 Export CSV</button>
@@ -1118,7 +1195,8 @@
                 </select>
 
                 <select id="filter-disc">
-                    <option value="0">All Discounts</option>
+                    <option value="0" selected>All Discounts (Show All)</option>
+                    <option value="30">≥ 30% OFF</option>
                     <option value="50">≥ 50% OFF</option>
                     <option value="60">≥ 60% OFF</option>
                     <option value="70">≥ 70% OFF</option>
@@ -1153,7 +1231,7 @@
             catSelect.appendChild(opt);
         });
 
-        document.getElementById('total-badge').innerText = \`\${products.length} Deals\`;
+        document.getElementById('total-badge').innerText = \`\${products.length} Items\`;
 
         const render = () => {
             const query = document.getElementById('search').value.toLowerCase().trim();
@@ -1177,14 +1255,14 @@
             if (filtered.length === 0) {
                 grid.innerHTML = \`
                     <div class="empty-state">
-                        <h3 style="margin-bottom:6px; color:#334155;">No matching deals found</h3>
+                        <h3 style="margin-bottom:6px; color:#334155;">No matching items found</h3>
                         <p style="color:#64748b; font-size:13.5px;">Try changing your search keyword or discount filter.</p>
                     </div>
                 \`;
             } else {
                 grid.innerHTML = filtered.map(p => \`
                     <div class="card">
-                        <span class="badge-discount">\${p.disc}% OFF</span>
+                        <span class="badge-discount \${p.disc < 50 ? 'badge-low' : ''}">\${p.disc}% OFF</span>
                         <span class="badge-savings">Save ₹\${p.savings}</span>
                         <div class="img-container">
                             <img src="\${p.img}" alt="\${p.name}" loading="lazy" onerror="this.src='https://www.bigbasket.com/static/images/default.jpg'">
@@ -1205,7 +1283,7 @@
                 \`).join('');
             }
 
-            document.getElementById('stats-showing').innerText = \`Showing \${filtered.length} of \${products.length} products\`;
+            document.getElementById('stats-showing').innerText = \`Showing \${filtered.length} of \${products.length} products across \${categories.length} categories\`;
         };
 
         // Export to CSV
@@ -1238,7 +1316,7 @@
         document.getElementById('btn-copy-links').onclick = () => {
             const urls = products.map(p => \`\${p.name} (₹\${p.sp} - \${p.disc}% OFF): \${p.url}\`).join('\\n');
             navigator.clipboard.writeText(urls).then(() => {
-                alert('Copied ' + products.length + ' deal links to clipboard!');
+                alert('Copied ' + products.length + ' item links to clipboard!');
             }).catch(() => {
                 alert('Failed to copy links. Please allow clipboard permissions.');
             });
