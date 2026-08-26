@@ -4,13 +4,11 @@ const path = require('path');
 const srcPath = path.join(__dirname, 'bb_deal_finder.js');
 let code = fs.readFileSync(srcPath, 'utf8');
 
-// Basic JS minification
-// 1. Remove comments
-code = code.replace(/\/\*[\s\S]*?\*\/|([^:]|^)\/\/.*$/gm, '$1');
-// 2. Remove extra spaces and newlines outside strings
-// For safety, let's keep it safe or use a clean minification
-fs.writeFileSync(path.join(__dirname, 'bb_deal_finder.min.js'), code, 'utf8');
+// Minify safely
+code = code.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
+code = code.replace(/\s+/g, ' ').replace(/\s*([=+\-*/%&|!<>?:;{},()\[\]])\s*/g, '$1').trim();
 
-const bookmarklet = 'javascript:' + encodeURIComponent('(function(){' + code + '})();');
+const bookmarklet = 'javascript:' + code;
+
 fs.writeFileSync(path.join(__dirname, 'bookmarklet.txt'), bookmarklet, 'utf8');
-console.log('Built bookmarklet! Size:', bookmarklet.length, 'bytes');
+console.log('Final Bookmarklet Size:', bookmarklet.length, 'characters (~' + (bookmarklet.length / 1024).toFixed(2) + ' KB)');

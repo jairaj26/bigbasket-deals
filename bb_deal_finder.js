@@ -1,23 +1,23 @@
 /**
- * BigBasket Deal Sniper (FAB Edition)
- * Self-contained bookmarklet & console script
+ * BigBasket Deal Sniper (In-Page Modal Edition)
+ * Ultra-lightweight self-contained bookmarklet & script
  */
 (function () {
     'use strict';
 
-    if (window.__BB_DEAL_SNIPER_INIT__) {
+    if (window.__BB_SNIPER__) {
         const p = document.getElementById('bb-pop');
         if (p) p.style.display = p.style.display === 'none' ? 'flex' : 'none';
         return;
     }
-    window.__BB_DEAL_SNIPER_INIT__ = true;
+    window.__BB_SNIPER__ = true;
 
-    const CONFIG = {
-        delayMin: 500,
-        delayMax: 1200,
-        minDiscount: 50,
-        maxPages: 6,
-        getHeaders: () => ({
+    const CFG = {
+        minD: 50,
+        maxP: 6,
+        dMin: 500,
+        dMax: 1200,
+        hdrs: () => ({
             "accept": "*/*",
             "content-type": "application/json",
             "x-channel": "BB-WEB",
@@ -27,67 +27,62 @@
         })
     };
 
-    const FIXED_CATEGORIES = [
-        { name: "Atta, Rice, Dal & More", slug: "2517587cs-attaricedalsmo", type: "sis" },
-        { name: "Oil, Ghee & Masala", slug: "2517588cs-oilgheemasalas", type: "sis" },
-        { name: "Dry Fruits & Cereals", slug: "2517573cs-dryfruitsseeds", type: "sis" },
-        { name: "Dairy", slug: "2515888cs-viewallfallbac", type: "sis" },
-        { name: "Bakery & Batters", slug: "2504814cs-viewallbakebat", type: "sis" },
-        { name: "Hot & Cold Beverages", slug: "2513246cs-beverages", type: "sis" },
-        { name: "Bath, Body & Oral Care", slug: "2517577cs-bathbodyoralca", type: "sis" },
-        { name: "Hair Care", slug: "2505250cs-viewallhair", type: "sis" },
-        { name: "Beauty & Cosmetics", slug: "2516515cs-beautycosmviewall", type: "sis" },
-        { name: "Sauces & Spreads", slug: "2510268s-rl-breakfastsaucesspr", type: "sis" },
-        { name: "Cleaners & Repellents", slug: "2517576cs-cleanersrepell", type: "sis" },
-        { name: "Stationery & Books", slug: "2517600cs-stationerybook", type: "sis" },
-        { name: "Sweets & Chocolates", slug: "2505617cs-viewallswecho", type: "sis" },
-        { name: "Namkeen & Chips", slug: "2505649cs-viewanamkeen", type: "sis" },
-        { name: "Biscuits & Cookies", slug: "2505722cs-viewallbisc", type: "sis" },
-        { name: "Instant & Frozen Foods", slug: "l1-instant-frozen-foods", type: "sis" },
-        { name: "Gourmet & World Food", slug: "gourmet-world-food", type: "pc" }
-    ];
+    const CATS = [
+        "Atta, Rice, Dal|2517587cs-attaricedalsmo",
+        "Oil, Ghee, Masala|2517588cs-oilgheemasalas",
+        "Dry Fruits, Seeds|2517573cs-dryfruitsseeds",
+        "Dairy|2515888cs-viewallfallbac",
+        "Bakery, Batters|2504814cs-viewallbakebat",
+        "Beverages|2513246cs-beverages",
+        "Bath, Body, Oral|2517577cs-bathbodyoralca",
+        "Hair Care|2505250cs-viewallhair",
+        "Beauty, Cosmetics|2516515cs-beautycosmviewall",
+        "Sauces, Spreads|2510268s-rl-breakfastsaucesspr",
+        "Cleaners, Repellents|2517576cs-cleanersrepell",
+        "Stationery, Books|2517600cs-stationerybook",
+        "Sweets, Chocolates|2505617cs-viewallswecho",
+        "Namkeen, Chips|2505649cs-viewanamkeen",
+        "Biscuits, Cookies|2505722cs-viewallbisc",
+        "Instant, Frozen|l1-instant-frozen-foods",
+        "Gourmet Foods|gourmet-world-food|pc"
+    ].map(s => {
+        const [n, slug, t] = s.split('|');
+        return { name: n, slug, type: t || 'sis' };
+    });
 
-    let allProducts = [];
+    let prods = [];
     let isFetching = false;
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
     const fetchJSON = async (url) => {
         try {
-            const res = await fetch(url, { headers: CONFIG.getHeaders() });
-            if (!res.ok) return null;
-            const text = await res.text();
-            return text ? JSON.parse(text) : null;
+            const res = await fetch(url, { headers: CFG.hdrs() });
+            return res.ok ? await res.json() : null;
         } catch { return null; }
     };
 
-    const extractProducts = (data) => {
-        if (!data) return [];
-        if (data.tabs && Array.isArray(data.tabs)) {
-            for (const t of data.tabs) {
+    const getItems = (d) => {
+        if (!d) return [];
+        if (d.tabs && Array.isArray(d.tabs)) {
+            for (const t of d.tabs) {
                 if (t?.product_info?.products?.length) return t.product_info.products;
             }
         }
-        if (data.product_info?.products?.length) return data.product_info.products;
-        if (Array.isArray(data.products)) return data.products;
-        if (data.data?.product_info?.products?.length) return data.data.product_info.products;
-        return [];
+        return d.product_info?.products || (Array.isArray(d.products) ? d.products : []);
     };
 
-    const processProduct = (p, catSlug, catName) => {
+    const parseProduct = (p, catName) => {
         if (!p) return null;
         const mrp = parseFloat(p.pricing?.discount?.mrp || p.pricing?.mrp || p.mrp || 0);
         let sp = parseFloat(p.pricing?.discount?.prim_price?.sp || p.pricing?.offer_price || p.pricing?.sp || p.sp || 0);
         if (sp <= 0 && mrp > 0) sp = mrp;
         const disc = mrp > 0 && sp > 0 ? ((mrp - sp) / mrp) * 100 : 0;
-        const savings = Math.max(0, mrp - sp);
+        const sav = Math.max(0, mrp - sp);
 
-        let isAvail = true;
-        if (p.availability && (p.availability.avail_status === '002' || p.availability.is_available === false)) {
-            isAvail = false;
-        }
+        if (p.availability && (p.availability.avail_status === '002' || p.availability.is_available === false)) return null;
 
-        if (isAvail && (mrp > 0 || sp > 0)) {
+        if (mrp > 0 || sp > 0) {
             const url = p.absolute_url ? (p.absolute_url.startsWith('http') ? p.absolute_url : 'https://www.bigbasket.com' + p.absolute_url) : `https://www.bigbasket.com/pd/${p.id || ''}`;
             return {
                 id: p.id || Math.random().toString(36).substring(7),
@@ -95,60 +90,52 @@
                 brand: p.brand?.name || p.p_brand || 'BigBasket',
                 mrp: parseFloat(mrp.toFixed(2)),
                 sp: parseFloat(sp.toFixed(2)),
-                savings: parseFloat(savings.toFixed(2)),
+                sav: parseFloat(sav.toFixed(2)),
                 disc: parseFloat(disc.toFixed(1)),
                 img: p.images?.[0]?.s || p.images?.[0]?.m || 'https://www.bigbasket.com/static/images/default.jpg',
                 cat: catName,
-                slug: catSlug,
                 url
             };
         }
         return null;
     };
 
-    const scanCategory = async (catSlug, onProgress) => {
-        const cat = FIXED_CATEGORIES.find(c => c.slug === catSlug);
-        if (!cat) return [];
-        let page = 1, more = true, items = [];
+    const scanCategory = async (cat, onProg) => {
+        let page = 1, more = true, res = [];
 
-        while (more && page <= CONFIG.maxPages) {
-            if (onProgress) onProgress(`Scanning ${cat.name} (P${page})...`);
-            const url = `https://www.bigbasket.com/listing-svc/v2/products?type=${cat.type}&slug=${cat.slug}&page=${page}&sort=dphtl`;
-            let data = await fetchJSON(url);
+        while (more && page <= CFG.maxP) {
+            if (onProg) onProg(`Scanning ${cat.name} (P${page})...`);
+            let data = await fetchJSON(`https://www.bigbasket.com/listing-svc/v2/products?type=${cat.type}&slug=${cat.slug}&page=${page}&sort=dphtl`);
 
-            if (page === 1 && !extractProducts(data).length) {
-                const altTypes = ['pc', 'sis', 'ps'].filter(t => t !== cat.type);
-                for (const alt of altTypes) {
-                    const altUrl = `https://www.bigbasket.com/listing-svc/v2/products?type=${alt}&slug=${cat.slug}&page=${page}&sort=dphtl`;
-                    const altData = await fetchJSON(altUrl);
-                    if (extractProducts(altData).length) {
-                        data = altData;
-                        cat.type = alt;
-                        break;
-                    }
+            if (page === 1 && !getItems(data).length) {
+                const alt = cat.type === 'sis' ? 'pc' : 'sis';
+                const altData = await fetchJSON(`https://www.bigbasket.com/listing-svc/v2/products?type=${alt}&slug=${cat.slug}&page=${page}&sort=dphtl`);
+                if (getItems(altData).length) {
+                    data = altData;
+                    cat.type = alt;
                 }
             }
 
-            await sleep(Math.floor(Math.random() * (CONFIG.delayMax - CONFIG.delayMin + 1)) + CONFIG.delayMin);
-            const prods = extractProducts(data);
-            if (!prods.length) { more = false; break; }
+            await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
+            const list = getItems(data);
+            if (!list.length) { more = false; break; }
 
             let pageItems = [];
-            prods.forEach(p => {
-                const item = processProduct(p, cat.slug, cat.name);
+            list.forEach(p => {
+                const item = parseProduct(p, cat.name);
                 if (item) pageItems.push(item);
                 if (p.children && Array.isArray(p.children)) {
-                    p.children.forEach(ch => {
-                        const ci = processProduct(ch, cat.slug, cat.name);
+                    p.children.forEach(c => {
+                        const ci = parseProduct(c, cat.name);
                         if (ci) pageItems.push(ci);
                     });
                 }
             });
 
             if (pageItems.length > 0) {
-                items.push(...pageItems);
+                res.push(...pageItems);
                 const last = pageItems[pageItems.length - 1];
-                if (last.disc >= CONFIG.minDiscount) {
+                if (last.disc >= CFG.minD) {
                     page++;
                 } else {
                     more = false;
@@ -157,97 +144,149 @@
                 more = false;
             }
         }
-        return items;
+        return res;
     };
 
-    const injectStyles = () => {
-        if (document.getElementById('bb-styles')) return;
+    const injectCSS = () => {
+        if (document.getElementById('bb-css')) return;
         const s = document.createElement('style');
-        s.id = 'bb-styles';
+        s.id = 'bb-css';
         s.textContent = `
-            #bb-wrap { position:fixed; bottom:20px; right:20px; z-index:2147483647; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif; }
-            #bb-fab { background:#2e7d32; color:#fff; border:none; padding:12px 18px; border-radius:50px; font-size:14px; font-weight:700; cursor:pointer; box-shadow:0 8px 24px rgba(46,125,50,0.4); display:flex; align-items:center; gap:8px; }
-            #bb-pop { position:absolute; bottom:60px; right:0; width:340px; max-width:calc(100vw - 32px); max-height:80vh; background:#fff; border-radius:16px; box-shadow:0 16px 40px rgba(0,0,0,0.2), 0 0 0 1px rgba(0,0,0,0.08); display:flex; flex-direction:column; overflow:hidden; }
-            @media(max-width:480px) { #bb-pop { position:fixed; bottom:74px; right:16px; left:16px; width:auto; } }
-            .bb-head { background:#2e7d32; color:#fff; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; font-size:14px; font-weight:700; }
-            .bb-head button { background:rgba(255,255,255,0.2); border:none; color:#fff; width:26px; height:26px; border-radius:50%; cursor:pointer; }
-            .bb-bar { display:flex; justify-content:space-between; padding:8px 14px; background:#f8fafc; border-bottom:1px solid #e2e8f0; font-size:12px; font-weight:600; color:#475569; }
-            .bb-bar button { background:none; border:none; color:#2e7d32; font-weight:700; cursor:pointer; font-size:11.5px; }
-            .bb-list { padding:8px 14px; overflow-y:auto; max-height:220px; display:flex; flex-direction:column; gap:4px; }
-            .bb-item { display:flex; align-items:center; gap:10px; padding:5px 0; font-size:12.5px; color:#334155; cursor:pointer; }
-            .bb-item input { accent-color:#2e7d32; width:16px; height:16px; }
-            .bb-st { padding:8px 14px; background:#f8fafc; border-top:1px solid #e2e8f0; font-size:11.5px; color:#475569; font-weight:600; }
-            .bb-prog { height:4px; background:#e2e8f0; border-radius:2px; overflow:hidden; display:none; margin-top:4px; }
-            .bb-prog-bar { height:100%; width:100%; background:#2e7d32; animation:bbp 1.2s infinite ease-in-out; transform-origin:0 50%; }
-            @keyframes bbp { 0%{transform:translateX(0) scaleX(0);} 50%{transform:translateX(0) scaleX(0.5);} 100%{transform:translateX(100%) scaleX(0.5);} }
-            .bb-acts { padding:12px 14px; background:#fff; border-top:1px solid #e2e8f0; display:flex; flex-direction:column; gap:8px; }
-            .bb-row { display:flex; gap:8px; }
-            .bb-btn { flex:1; padding:9px 12px; border:none; border-radius:8px; font-size:13px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; }
-            .bb-btn:disabled { opacity:0.45; cursor:not-allowed; }
-            .bb-btn-f { background:#2e7d32; color:#fff; }
-            .bb-btn-a { background:#d32f2f; color:#fff; }
-            .bb-btn-tab { background:#1976d2; color:#fff; width:100%; padding:10px; display:none; box-shadow:0 4px 12px rgba(25,118,210,0.3); }
+            #bb-wrap{position:fixed;bottom:20px;right:20px;z-index:2147483640;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;}
+            #bb-fab{background:#2e7d32;color:#fff;border:none;padding:12px 18px;border-radius:50px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(46,125,50,0.4);display:flex;align-items:center;gap:6px;}
+            #bb-pop{position:absolute;bottom:60px;right:0;width:320px;max-width:calc(100vw - 32px);max-height:80vh;background:#fff;border-radius:16px;box-shadow:0 16px 40px rgba(0,0,0,0.2),0 0 0 1px rgba(0,0,0,0.08);display:flex;flex-direction:column;overflow:hidden;}
+            @media(max-width:480px){#bb-pop{position:fixed;bottom:74px;right:16px;left:16px;width:auto;}}
+            .bb-hd{background:#2e7d32;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:700;}
+            .bb-hd button{background:rgba(255,255,255,0.2);border:none;color:#fff;width:24px;height:24px;border-radius:50%;cursor:pointer;}
+            .bb-tb{display:flex;justify-content:space-between;padding:8px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:600;color:#475569;}
+            .bb-tb button{background:none;border:none;color:#2e7d32;font-weight:700;cursor:pointer;font-size:11.5px;}
+            .bb-list{padding:8px 14px;overflow-y:auto;max-height:220px;display:flex;flex-direction:column;gap:3px;}
+            .bb-item{display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px;color:#334155;cursor:pointer;}
+            .bb-item input{accent-color:#2e7d32;width:15px;height:15px;}
+            .bb-st{padding:8px 14px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11.5px;color:#475569;font-weight:600;}
+            .bb-acts{padding:12px 14px;background:#fff;border-top:1px solid #e2e8f0;display:flex;flex-direction:column;gap:8px;}
+            .bb-row{display:flex;gap:8px;}
+            .bb-btn{flex:1;padding:9px 12px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+            .bb-btn:disabled{opacity:0.45;cursor:not-allowed;}
+            .bb-btn-f{background:#2e7d32;color:#fff;}
+            .bb-btn-a{background:#d32f2f;color:#fff;}
+            .bb-btn-m{background:#1976d2;color:#fff;width:100%;padding:10px;display:none;box-shadow:0 4px 12px rgba(25,118,210,0.3);}
+            
+            /* In-Page Modal Grid */
+            #bb-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:#f8fafc;z-index:2147483646;display:none;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:#0f172a;}
+            .bb-m-top{background:#fff;padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:10px;position:sticky;top:0;z-index:10;}
+            .bb-m-th{display:flex;justify-content:space-between;align-items:center;}
+            .bb-m-th h2{font-size:18px;color:#1b5e20;margin:0;}
+            .bb-m-cls{background:#e2e8f0;border:none;color:#334155;padding:6px 12px;border-radius:6px;font-weight:700;cursor:pointer;}
+            .bb-m-ctrl{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;}
+            @media(max-width:600px){.bb-m-ctrl{grid-template-columns:1fr;}}
+            .bb-m-ctrl input,.bb-m-ctrl select{padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;outline:none;}
+            .bb-m-body{flex:1;overflow-y:auto;padding:20px;}
+            .bb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;}
+            .bb-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px;display:flex;flex-direction:column;position:relative;}
+            .bb-card:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,0.06);}
+            .bb-bdg{position:absolute;top:10px;left:10px;background:#e53935;color:#fff;font-size:11px;font-weight:800;padding:3px 7px;border-radius:6px;}
+            .bb-bdg.low{background:#4b5563;}
+            .bb-sav{position:absolute;top:10px;right:10px;background:#e8f5e9;color:#1b5e20;font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px;}
+            .bb-img{width:100%;height:130px;display:flex;align-items:center;justify-content:center;background:#fafafa;border-radius:8px;margin-bottom:8px;}
+            .bb-img img{max-width:100%;max-height:100%;object-fit:contain;}
+            .bb-meta{display:flex;justify-content:space-between;font-size:10.5px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:4px;}
+            .bb-ttl{font-size:12.5px;font-weight:600;color:#0f172a;line-height:1.4;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:35px;}
+            .bb-prc{display:flex;align-items:baseline;gap:8px;margin-top:auto;margin-bottom:8px;}
+            .bb-sp{font-size:16px;font-weight:800;color:#0f172a;}
+            .bb-mrp{font-size:12px;color:#94a3b8;text-decoration:line-through;}
+            .bb-buy{display:block;text-align:center;padding:8px;background:#2e7d32;color:#fff;text-decoration:none;border-radius:8px;font-size:12px;font-weight:700;}
+            .bb-buy:hover{background:#1b5e20;}
         `;
         document.head.appendChild(s);
     };
 
     const buildUI = () => {
-        injectStyles();
+        injectCSS();
         if (document.getElementById('bb-wrap')) return;
 
+        // 1. FAB & Popover
         const w = document.createElement('div');
         w.id = 'bb-wrap';
         w.innerHTML = `
             <div id="bb-pop">
-                <div class="bb-head">
+                <div class="bb-hd">
                     <span>🛒 BB Deal Sniper</span>
-                    <button id="bb-close">&times;</button>
+                    <button id="bb-cls">&times;</button>
                 </div>
-                <div class="bb-bar">
-                    <span id="bb-cnt-lbl">Select Categories</span>
+                <div class="bb-tb">
+                    <span id="bb-lbl">Select Categories</span>
                     <div>
                         <button id="bb-all">All</button> | <button id="bb-none">None</button>
                     </div>
                 </div>
                 <div class="bb-list" id="bb-list"></div>
-                <div class="bb-st">
-                    <div id="bb-st-txt">Ready to scan (Page 1 + ≥50% OFF)</div>
-                    <div class="bb-prog" id="bb-prog"><div class="bb-prog-bar"></div></div>
-                </div>
+                <div class="bb-st" id="bb-st">Ready (Page 1 + ≥50% OFF)</div>
                 <div class="bb-acts">
                     <div class="bb-row">
-                        <button id="bb-f-btn" class="bb-btn bb-btn-f" disabled>⚡ Fetch</button>
-                        <button id="bb-a-btn" class="bb-btn bb-btn-a">🚀 Fetch All</button>
+                        <button id="bb-f" class="bb-btn bb-btn-f" disabled>⚡ Fetch</button>
+                        <button id="bb-a" class="bb-btn bb-btn-a">🚀 Fetch All</button>
                     </div>
-                    <button id="bb-tab-btn" class="bb-btn bb-btn-tab">🖥️ Open Deals in New Tab ↗</button>
+                    <button id="bb-m-btn" class="bb-btn bb-btn-m">🖥️ View Deals Grid ↗</button>
                 </div>
             </div>
             <button id="bb-fab">🛒 BB Deals</button>
         `;
         document.body.appendChild(w);
 
+        // 2. In-Page Fullscreen Modal
+        const m = document.createElement('div');
+        m.id = 'bb-modal';
+        m.innerHTML = `
+            <div class="bb-m-top">
+                <div class="bb-m-th">
+                    <h2>🛒 BigBasket Deals Explorer</h2>
+                    <button class="bb-m-cls" id="bb-m-cls">✕ Close</button>
+                </div>
+                <div class="bb-m-ctrl">
+                    <input type="text" id="bb-q" placeholder="Search brand or product...">
+                    <select id="bb-fc"><option value="all">All Categories</option></select>
+                    <select id="bb-fd">
+                        <option value="0">All Discounts (Show All)</option>
+                        <option value="30">≥ 30% OFF</option>
+                        <option value="50">≥ 50% OFF</option>
+                        <option value="60">≥ 60% OFF</option>
+                        <option value="70">≥ 70% OFF</option>
+                        <option value="80">≥ 80% OFF</option>
+                    </select>
+                </div>
+            </div>
+            <div class="bb-m-body">
+                <div id="bb-stat" style="font-size:12.5px;color:#64748b;margin-bottom:14px;font-weight:600;"></div>
+                <div class="bb-grid" id="bb-grid"></div>
+            </div>
+        `;
+        document.body.appendChild(m);
+
+        // Populate Category Checkboxes
         const list = document.getElementById('bb-list');
-        FIXED_CATEGORIES.forEach(c => {
-            const item = document.createElement('label');
-            item.className = 'bb-item';
-            item.innerHTML = `<input type="checkbox" value="${c.slug}" class="bb-cb"> <span>${c.name}</span>`;
-            list.appendChild(item);
+        CATS.forEach(c => {
+            const el = document.createElement('label');
+            el.className = 'bb-item';
+            el.innerHTML = `<input type="checkbox" value="${c.slug}" class="bb-cb"> <span>${c.name}</span>`;
+            list.appendChild(el);
         });
 
         const pop = document.getElementById('bb-pop');
-        const fBtn = document.getElementById('bb-f-btn');
-        const aBtn = document.getElementById('bb-a-btn');
-        const tabBtn = document.getElementById('bb-tab-btn');
-        const cntLbl = document.getElementById('bb-cnt-lbl');
+        const fBtn = document.getElementById('bb-f');
+        const aBtn = document.getElementById('bb-a');
+        const mBtn = document.getElementById('bb-m-btn');
+        const lbl = document.getElementById('bb-lbl');
+        const st = document.getElementById('bb-st');
 
         document.getElementById('bb-fab').onclick = () => {
             pop.style.display = pop.style.display === 'none' ? 'flex' : 'none';
         };
-        document.getElementById('bb-close').onclick = () => { pop.style.display = 'none'; };
+        document.getElementById('bb-cls').onclick = () => { pop.style.display = 'none'; };
 
         const updateState = () => {
             const cnt = document.querySelectorAll('.bb-cb:checked').length;
-            cntLbl.innerText = cnt > 0 ? `${cnt} Selected` : 'Select Categories';
+            lbl.innerText = cnt > 0 ? `${cnt} Selected` : 'Select Categories';
             if (!isFetching) {
                 fBtn.disabled = cnt === 0;
                 fBtn.innerText = cnt > 0 ? `⚡ Fetch (${cnt})` : '⚡ Fetch';
@@ -268,152 +307,89 @@
 
         const setBusy = (busy, msg = '') => {
             isFetching = busy;
-            if (msg) document.getElementById('bb-st-txt').innerText = msg;
-            document.getElementById('bb-prog').style.display = busy ? 'block' : 'none';
+            if (msg) st.innerText = msg;
             fBtn.disabled = busy || document.querySelectorAll('.bb-cb:checked').length === 0;
             aBtn.disabled = busy;
-            tabBtn.disabled = busy;
+            mBtn.disabled = busy;
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.disabled = busy; });
         };
 
         const runFetch = async (all = false) => {
             if (isFetching) return;
-            const slugs = all ? FIXED_CATEGORIES.map(c => c.slug) : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => cb.value);
+            const slugs = all ? CATS.map(c => c.slug) : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => cb.value);
             if (!slugs.length) return;
 
             setBusy(true, `Starting fetch for ${slugs.length} categories...`);
-            allProducts = [];
+            prods = [];
 
             for (let i = 0; i < slugs.length; i++) {
-                const items = await scanCategory(slugs[i], (m) => setBusy(true, `[${i + 1}/${slugs.length}] ${m}`));
-                if (items.length) allProducts.push(...items);
+                const c = CATS.find(x => x.slug === slugs[i]);
+                if (c) {
+                    const items = await scanCategory(c, (m) => setBusy(true, `[${i + 1}/${slugs.length}] ${m}`));
+                    if (items.length) prods.push(...items);
+                }
             }
 
             const seen = new Set();
-            allProducts = allProducts.filter(p => seen.has(p.id) ? false : seen.add(p.id));
+            prods = prods.filter(p => seen.has(p.id) ? false : seen.add(p.id));
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.checked = false; });
-            const cats = new Set(allProducts.map(p => p.cat)).size;
+            const catsCount = new Set(prods.map(p => p.cat)).size;
 
-            setBusy(false, `✅ Done! Found ${allProducts.length} items (${cats} categories).`);
-            cntLbl.innerText = 'Select Categories';
+            setBusy(false, `✅ Done! Found ${prods.length} items (${catsCount} categories).`);
+            lbl.innerText = 'Select Categories';
             fBtn.disabled = true;
             fBtn.innerText = '⚡ Fetch';
 
-            if (allProducts.length > 0) {
-                tabBtn.style.display = 'flex';
-                tabBtn.innerText = `🖥️ View ${allProducts.length} Items in New Tab ↗`;
+            if (prods.length > 0) {
+                mBtn.style.display = 'flex';
+                mBtn.innerText = `🖥️ View ${prods.length} Deals Grid ↗`;
+                openModal();
             }
         };
 
         fBtn.onclick = () => runFetch(false);
         aBtn.onclick = () => runFetch(true);
-        tabBtn.onclick = openDashboard;
-    };
 
-    const openDashboard = () => {
-        if (!allProducts.length) return alert('No products fetched yet!');
-        const win = window.open('', '_blank');
-        if (!win) return alert('Please allow popups for BigBasket to open the dashboard.');
+        // Modal Rendering Functions
+        const openModal = () => {
+            if (!prods.length) return alert('No products fetched yet!');
+            const fc = document.getElementById('bb-fc');
+            fc.innerHTML = '<option value="all">All Categories</option>';
+            [...new Set(prods.map(p => p.cat))].sort().forEach(c => {
+                fc.innerHTML += `<option value="${c}">${c}</option>`;
+            });
 
-        const dataStr = JSON.stringify(allProducts);
-        const html = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8"><title>🛒 BigBasket Deals Dashboard</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:#f8fafc;color:#0f172a;padding:20px;}
-.top{background:#fff;padding:16px 20px;border-radius:12px;border:1px solid #e2e8f0;margin-bottom:16px;display:flex;flex-direction:column;gap:12px;}
-.top-h{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
-.top-h h1{font-size:20px;color:#1b5e20;font-weight:800;}
-.grid-ctrl{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:10px;}
-@media(max-width:800px){.grid-ctrl{grid-template-columns:1fr 1fr;}}
-@media(max-width:500px){.grid-ctrl{grid-template-columns:1fr;}}
-input,select,button{padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;outline:none;}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;}
-.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:14px;display:flex;flex-direction:column;position:relative;}
-.card:hover{transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,0.06);}
-.bdg{position:absolute;top:10px;left:10px;background:#e53935;color:#fff;font-size:11px;font-weight:800;padding:3px 7px;border-radius:6px;}
-.bdg-low{background:#4b5563;}
-.sav{position:absolute;top:10px;right:10px;background:#e8f5e9;color:#1b5e20;font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px;}
-.img-box{width:100%;height:140px;display:flex;align-items:center;justify-content:center;background:#fafafa;border-radius:8px;margin-bottom:10px;}
-.img-box img{max-width:100%;max-height:100%;object-fit:contain;}
-.meta{display:flex;justify-content:space-between;font-size:10.5px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:4px;}
-.title{font-size:13px;font-weight:600;color:#0f172a;line-height:1.4;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:36px;}
-.price{display:flex;align-items:baseline;gap:8px;margin-top:auto;margin-bottom:10px;}
-.sp{font-size:17px;font-weight:800;color:#0f172a;}
-.mrp{font-size:12.5px;color:#94a3b8;text-decoration:line-through;}
-.btn-buy{display:block;text-align:center;padding:8px;background:#2e7d32;color:#fff;text-decoration:none;border-radius:8px;font-size:12.5px;font-weight:700;}
-.btn-buy:hover{background:#1b5e20;}
-</style>
-</head>
-<body>
-<div class="top">
-  <div class="top-h">
-    <h1>🛒 BigBasket Deals Dashboard</h1>
-    <div>
-      <button id="b-exp">📥 Export CSV</button>
-      <button id="b-cpy">🔗 Copy Links</button>
-    </div>
-  </div>
-  <div class="grid-ctrl">
-    <input type="text" id="q" placeholder="Search brand or product...">
-    <select id="fc"><option value="all">All Categories</option></select>
-    <select id="fd"><option value="0">All Discounts (Show All)</option><option value="30">≥ 30% OFF</option><option value="50">≥ 50% OFF</option><option value="60">≥ 60% OFF</option><option value="70">≥ 70% OFF</option><option value="80">≥ 80% OFF</option></select>
-    <select id="st"><option value="d">Sort: Discount %</option><option value="s">Sort: Savings ₹</option><option value="pa">Sort: Price Low-High</option><option value="pd">Sort: Price High-Low</option></select>
-  </div>
-</div>
-<div id="stat" style="font-size:12px;color:#64748b;margin-bottom:12px;"></div>
-<div class="grid" id="g"></div>
-<script>
-const prods = ${dataStr};
-const fc = document.getElementById('fc');
-[...new Set(prods.map(p => p.cat))].sort().forEach(c => fc.innerHTML += \`<option value="\${c}">\${c}</option>\`);
+            m.style.display = 'flex';
+            renderModal();
+        };
 
-function render() {
-  const q = document.getElementById('q').value.toLowerCase().trim();
-  const c = fc.value;
-  const md = parseFloat(document.getElementById('fd').value)||0;
-  const s = document.getElementById('st').value;
+        const renderModal = () => {
+            const q = document.getElementById('bb-q').value.toLowerCase().trim();
+            const c = document.getElementById('bb-fc').value;
+            const md = parseFloat(document.getElementById('bb-fd').value) || 0;
 
-  let list = prods.filter(p => (!q || p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q)) && (c === 'all' || p.cat === c) && p.disc >= md);
-  if (s==='d') list.sort((a,b)=>b.disc-a.disc);
-  else if (s==='s') list.sort((a,b)=>b.savings-a.savings);
-  else if (s==='pa') list.sort((a,b)=>a.sp-b.sp);
-  else if (s==='pd') list.sort((a,b)=>b.sp-a.sp);
+            let filtered = prods.filter(p => (!q || p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q)) && (c === 'all' || p.cat === c) && p.disc >= md);
+            filtered.sort((a, b) => b.disc - a.disc);
 
-  document.getElementById('stat').innerText = \`Showing \${list.length} of \${prods.length} items\`;
-  document.getElementById('g').innerHTML = list.map(p => \`
-    <div class="card">
-      <span class="bdg \${p.disc < 50 ? 'bdg-low':''}">\${p.disc}% OFF</span>
-      <span class="sav">Save ₹\${p.savings}</span>
-      <div class="img-box"><img src="\${p.img}" loading="lazy"></div>
-      <div class="meta"><span>\${p.brand}</span><span>\${p.cat}</span></div>
-      <div class="title" title="\${p.name}">\${p.name}</div>
-      <div class="price"><span class="sp">₹\${p.sp}</span><span class="mrp">₹\${p.mrp}</span></div>
-      <a href="\${p.url}" target="_blank" class="btn-buy">View on BigBasket ↗</a>
-    </div>
-  \`).join('');
-}
-document.getElementById('q').oninput = render;
-fc.onchange = render;
-document.getElementById('fd').onchange = render;
-document.getElementById('st').onchange = render;
-document.getElementById('b-exp').onclick = () => {
-  const csv = "ID,Name,Brand,Category,MRP,OfferPrice,Discount,Savings,URL\\n" + prods.map(p=>\`\${p.id},"\${p.name.replace(/"/g,'""')}","\${p.brand.replace(/"/g,'""')}","\${p.cat.replace(/"/g,'""')}",\${p.mrp},\${p.sp},\${p.disc},\${p.savings},"\${p.url}"\`).join("\\n");
-  const a = document.createElement('a'); a.href = 'data:text/csv;charset=utf-8,' + encodeURI(csv); a.download = 'bb_deals.csv'; a.click();
-};
-document.getElementById('b-cpy').onclick = () => {
-  navigator.clipboard.writeText(prods.map(p=>\`\${p.name} (₹\${p.sp} - \${p.disc}% OFF): \${p.url}\`).join('\\n'));
-  alert('Copied ' + prods.length + ' links!');
-};
-render();
-<\/script>
-</body>
-</html>`;
-        win.document.open();
-        win.document.write(html);
-        win.document.close();
+            document.getElementById('bb-stat').innerText = `Showing ${filtered.length} of ${prods.length} items across ${new Set(prods.map(p => p.cat)).size} categories`;
+            document.getElementById('bb-grid').innerHTML = filtered.map(p => `
+                <div class="bb-card">
+                    <span class="bb-bdg ${p.disc < 50 ? 'low' : ''}">${p.disc}% OFF</span>
+                    <span class="bb-sav">Save ₹${p.sav}</span>
+                    <div class="bb-img"><img src="${p.img}" loading="lazy" onerror="this.src='https://www.bigbasket.com/static/images/default.jpg'"></div>
+                    <div class="bb-meta"><span>${p.brand}</span><span>${p.cat}</span></div>
+                    <div class="bb-ttl" title="${p.name}">${p.name}</div>
+                    <div class="bb-prc"><span class="bb-sp">₹${p.sp}</span><span class="bb-mrp">₹${p.mrp}</span></div>
+                    <a href="${p.url}" target="_blank" class="bb-buy">View on BigBasket ↗</a>
+                </div>
+            `).join('');
+        };
+
+        mBtn.onclick = openModal;
+        document.getElementById('bb-m-cls').onclick = () => { m.style.display = 'none'; };
+        document.getElementById('bb-q').oninput = renderModal;
+        document.getElementById('bb-fc').onchange = renderModal;
+        document.getElementById('bb-fd').onchange = renderModal;
     };
 
     buildUI();
