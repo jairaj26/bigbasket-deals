@@ -1,4 +1,5 @@
 # Scratch and dump data files
 *.txt
+!bookmarklet.txt
 .system_generated/
 *.log
