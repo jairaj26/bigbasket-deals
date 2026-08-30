@@ -1,5 +1,5 @@
 /**
- * BigBasket Deal Sniper (Pure ASCII Edition)
+ * BigBasket Deal Sniper (Pure ASCII Edition with Permanent Canonical Categories)
  * Works as a standalone script or mobile/desktop bookmarklet without CSP issues
  */
 (function () {
@@ -15,8 +15,8 @@
     const CFG = {
         minD: 50,
         maxP: 6,
-        dMin: 500,
-        dMax: 1200,
+        dMin: 400,
+        dMax: 900,
         hdrs: () => ({
             "accept": "*/*",
             "content-type": "application/json",
@@ -27,27 +27,27 @@
         })
     };
 
+    // Permanent canonical BigBasket category slugs (type: 'pc' never expires)
     const CATS = [
-        "Atta, Rice, Dal|2517587cs-attaricedalsmo",
-        "Oil, Ghee, Masala|2517588cs-oilgheemasalas",
-        "Dry Fruits, Seeds|2517573cs-dryfruitsseeds",
-        "Dairy|2515888cs-viewallfallbac",
-        "Bakery, Batters|2504814cs-viewallbakebat",
-        "Beverages|2513246cs-beverages",
-        "Bath, Body, Oral|2517577cs-bathbodyoralca",
-        "Hair Care|2505250cs-viewallhair",
-        "Beauty, Cosmetics|2516515cs-beautycosmviewall",
-        "Sauces, Spreads|2510268s-rl-breakfastsaucesspr",
-        "Cleaners, Repellents|2517576cs-cleanersrepell",
-        "Stationery, Books|2517600cs-stationerybook",
-        "Sweets, Chocolates|2505617cs-viewallswecho",
-        "Namkeen, Chips|2505649cs-viewanamkeen",
-        "Biscuits, Cookies|2505722cs-viewallbisc",
-        "Instant, Frozen|l1-instant-frozen-foods",
-        "Gourmet Foods|gourmet-world-food|pc"
+        "Atta, Rice & Dals|foodgrains-oil-masala",
+        "Edible Oils & Ghee|edible-oils-ghee",
+        "Dairy & Cheese|dairy",
+        "Bakery & Cakes|bakery-cakes",
+        "Beverages, Tea & Coffee|beverages",
+        "Snacks & Namkeen|snacks-branded-foods",
+        "Biscuits & Cookies|biscuits-cookies",
+        "Chocolates & Sweets|chocolates-candies",
+        "Instant & Ready Foods|ready-to-cook-eat",
+        "Bath & Body Care|bath-hand-wash",
+        "Hair Care|hair-care",
+        "Beauty & Skin Care|skin-care",
+        "Cleaning & Detergents|detergents-dishwash",
+        "Household Cleaners|all-purpose-cleaners",
+        "Gourmet & World Food|gourmet-world-food",
+        "Kitchen Accessories|kitchen-accessories"
     ].map(s => {
         const [n, slug, t] = s.split('|');
-        return { name: n, slug, type: t || 'sis' };
+        return { name: n, slug, type: t || 'pc' };
     });
 
     let prods = [];
@@ -107,8 +107,9 @@
             if (onProg) onProg(`Scanning ${cat.name} (P${page})...`);
             let data = await fetchJSON(`https://www.bigbasket.com/listing-svc/v2/products?type=${cat.type}&slug=${cat.slug}&page=${page}&sort=dphtl`);
 
+            // Fallback between pc and sis if needed
             if (page === 1 && !getItems(data).length) {
-                const alt = cat.type === 'sis' ? 'pc' : 'sis';
+                const alt = cat.type === 'pc' ? 'sis' : 'pc';
                 const altData = await fetchJSON(`https://www.bigbasket.com/listing-svc/v2/products?type=${alt}&slug=${cat.slug}&page=${page}&sort=dphtl`);
                 if (getItems(altData).length) {
                     data = altData;
@@ -134,6 +135,7 @@
 
             if (pageItems.length > 0) {
                 res.push(...pageItems);
+                // Smart pagination: continue to Page 2+ only if last item has >= minD% discount
                 const last = pageItems[pageItems.length - 1];
                 if (last.disc >= CFG.minD) {
                     page++;
@@ -169,7 +171,7 @@
             .bb-btn{flex:1;padding:9px 12px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;}
             .bb-btn:disabled{opacity:0.45;cursor:not-allowed;}
             .bb-btn-f{background:#2e7d32;color:#fff;}
-            .bb-btn-a{background:#d32f2f;color:#fff;}
+            #bb-btn-a{background:#d32f2f;color:#fff;}
             .bb-btn-m{background:#1976d2;color:#fff;width:100%;padding:10px;display:none;box-shadow:0 4px 12px rgba(25,118,210,0.3);}
             
             #bb-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:#f8fafc;z-index:2147483646;display:none;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:#0f172a;}
