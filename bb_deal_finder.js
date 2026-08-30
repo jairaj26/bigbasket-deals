@@ -1,6 +1,6 @@
 /**
- * BigBasket Deal Sniper (In-Page Modal Edition)
- * Ultra-lightweight self-contained bookmarklet & script
+ * BigBasket Deal Sniper (Pure ASCII Edition)
+ * Works as a standalone script or mobile/desktop bookmarklet without CSP issues
  */
 (function () {
     'use strict';
@@ -172,7 +172,6 @@
             .bb-btn-a{background:#d32f2f;color:#fff;}
             .bb-btn-m{background:#1976d2;color:#fff;width:100%;padding:10px;display:none;box-shadow:0 4px 12px rgba(25,118,210,0.3);}
             
-            /* In-Page Modal Grid */
             #bb-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:#f8fafc;z-index:2147483646;display:none;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:#0f172a;}
             .bb-m-top{background:#fff;padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:10px;position:sticky;top:0;z-index:10;}
             .bb-m-th{display:flex;justify-content:space-between;align-items:center;}
@@ -205,14 +204,13 @@
         injectCSS();
         if (document.getElementById('bb-wrap')) return;
 
-        // 1. FAB & Popover
         const w = document.createElement('div');
         w.id = 'bb-wrap';
         w.innerHTML = `
             <div id="bb-pop">
                 <div class="bb-hd">
-                    <span>🛒 BB Deal Sniper</span>
-                    <button id="bb-cls">&times;</button>
+                    <span>BB Deal Sniper</span>
+                    <button id="bb-cls">X</button>
                 </div>
                 <div class="bb-tb">
                     <span id="bb-lbl">Select Categories</span>
@@ -221,38 +219,37 @@
                     </div>
                 </div>
                 <div class="bb-list" id="bb-list"></div>
-                <div class="bb-st" id="bb-st">Ready (Page 1 + ≥50% OFF)</div>
+                <div class="bb-st" id="bb-st">Ready (Page 1 + >=50% OFF)</div>
                 <div class="bb-acts">
                     <div class="bb-row">
-                        <button id="bb-f" class="bb-btn bb-btn-f" disabled>⚡ Fetch</button>
-                        <button id="bb-a" class="bb-btn bb-btn-a">🚀 Fetch All</button>
+                        <button id="bb-f" class="bb-btn bb-btn-f" disabled>Fetch</button>
+                        <button id="bb-a" class="bb-btn bb-btn-a">Fetch All</button>
                     </div>
-                    <button id="bb-m-btn" class="bb-btn bb-btn-m">🖥️ View Deals Grid ↗</button>
+                    <button id="bb-m-btn" class="bb-btn bb-btn-m">View Deals Grid ></button>
                 </div>
             </div>
-            <button id="bb-fab">🛒 BB Deals</button>
+            <button id="bb-fab">BB Deals</button>
         `;
         document.body.appendChild(w);
 
-        // 2. In-Page Fullscreen Modal
         const m = document.createElement('div');
         m.id = 'bb-modal';
         m.innerHTML = `
             <div class="bb-m-top">
                 <div class="bb-m-th">
-                    <h2>🛒 BigBasket Deals Explorer</h2>
-                    <button class="bb-m-cls" id="bb-m-cls">✕ Close</button>
+                    <h2>BigBasket Deals Explorer</h2>
+                    <button class="bb-m-cls" id="bb-m-cls">Close</button>
                 </div>
                 <div class="bb-m-ctrl">
                     <input type="text" id="bb-q" placeholder="Search brand or product...">
                     <select id="bb-fc"><option value="all">All Categories</option></select>
                     <select id="bb-fd">
                         <option value="0">All Discounts (Show All)</option>
-                        <option value="30">≥ 30% OFF</option>
-                        <option value="50">≥ 50% OFF</option>
-                        <option value="60">≥ 60% OFF</option>
-                        <option value="70">≥ 70% OFF</option>
-                        <option value="80">≥ 80% OFF</option>
+                        <option value="30">>= 30% OFF</option>
+                        <option value="50">>= 50% OFF</option>
+                        <option value="60">>= 60% OFF</option>
+                        <option value="70">>= 70% OFF</option>
+                        <option value="80">>= 80% OFF</option>
                     </select>
                 </div>
             </div>
@@ -263,7 +260,6 @@
         `;
         document.body.appendChild(m);
 
-        // Populate Category Checkboxes
         const list = document.getElementById('bb-list');
         CATS.forEach(c => {
             const el = document.createElement('label');
@@ -289,7 +285,7 @@
             lbl.innerText = cnt > 0 ? `${cnt} Selected` : 'Select Categories';
             if (!isFetching) {
                 fBtn.disabled = cnt === 0;
-                fBtn.innerText = cnt > 0 ? `⚡ Fetch (${cnt})` : '⚡ Fetch';
+                fBtn.innerText = cnt > 0 ? `Fetch (${cnt})` : 'Fetch';
             }
         };
 
@@ -335,14 +331,14 @@
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.checked = false; });
             const catsCount = new Set(prods.map(p => p.cat)).size;
 
-            setBusy(false, `✅ Done! Found ${prods.length} items (${catsCount} categories).`);
+            setBusy(false, `Done! Found ${prods.length} items (${catsCount} categories).`);
             lbl.innerText = 'Select Categories';
             fBtn.disabled = true;
-            fBtn.innerText = '⚡ Fetch';
+            fBtn.innerText = 'Fetch';
 
             if (prods.length > 0) {
                 mBtn.style.display = 'flex';
-                mBtn.innerText = `🖥️ View ${prods.length} Deals Grid ↗`;
+                mBtn.innerText = `View ${prods.length} Deals Grid >`;
                 openModal();
             }
         };
@@ -350,7 +346,6 @@
         fBtn.onclick = () => runFetch(false);
         aBtn.onclick = () => runFetch(true);
 
-        // Modal Rendering Functions
         const openModal = () => {
             if (!prods.length) return alert('No products fetched yet!');
             const fc = document.getElementById('bb-fc');
@@ -375,12 +370,12 @@
             document.getElementById('bb-grid').innerHTML = filtered.map(p => `
                 <div class="bb-card">
                     <span class="bb-bdg ${p.disc < 50 ? 'low' : ''}">${p.disc}% OFF</span>
-                    <span class="bb-sav">Save ₹${p.sav}</span>
+                    <span class="bb-sav">Save Rs.${p.sav}</span>
                     <div class="bb-img"><img src="${p.img}" loading="lazy" onerror="this.src='https://www.bigbasket.com/static/images/default.jpg'"></div>
                     <div class="bb-meta"><span>${p.brand}</span><span>${p.cat}</span></div>
                     <div class="bb-ttl" title="${p.name}">${p.name}</div>
-                    <div class="bb-prc"><span class="bb-sp">₹${p.sp}</span><span class="bb-mrp">₹${p.mrp}</span></div>
-                    <a href="${p.url}" target="_blank" class="bb-buy">View on BigBasket ↗</a>
+                    <div class="bb-prc"><span class="bb-sp">Rs.${p.sp}</span><span class="bb-mrp">Rs.${p.mrp}</span></div>
+                    <a href="${p.url}" target="_blank" class="bb-buy">View on BigBasket ></a>
                 </div>
             `).join('');
         };
