@@ -1,9 +1,9 @@
 /**
- * BigBasket Deal Sniper (Comprehensive Category Edition)
- * - Covers all 11 Master Categories + Key High-Deal Sub-Aisles
- * - Multi-Type Endpoint Fallbacks (pc -> ps -> cl -> sis)
- * - Parallel 2-Page Fetching by Default
- * - Automatic Flash/Liquidation Detection
+ * BigBasket Deal Sniper (Reliable Fetch & Anti-Throttling Edition)
+ * - Retries on rate-limiting / failed requests
+ * - Respectful pacing between category requests to prevent Akamai throttling
+ * - Composite deduplication to prevent cross-category item drops
+ * - Live category item counters in status bar
  */
 (function () {
     'use strict';
@@ -18,8 +18,8 @@
     const CFG = {
         minD: 50,
         maxP: 6,
-        dMin: 300,
-        dMax: 600,
+        dMin: 400,
+        dMax: 800,
         hdrs: () => ({
             "accept": "*/*",
             "content-type": "application/json",
@@ -30,28 +30,28 @@
         })
     };
 
-    // Complete set of 11 Master Categories + Top Subcategories
+    // Clean Master Categories & Top High-Deal Sub-Aisles
     const CATS = [
-        "Baby Care (All)|baby-care",
-        "Diapers & Wipes|diapers-wipes",
-        "Snacks & Branded Foods|snacks-branded-foods",
-        "Biscuits & Cookies|biscuits-cookies",
-        "Chocolates & Candies|chocolates-candies",
-        "Foodgrains, Oil & Masala|foodgrains-oil-masala",
-        "Edible Oils & Ghee|edible-oils-ghee",
-        "Dry Fruits|dry-fruits",
-        "Bakery, Cakes & Dairy|bakery-cakes-dairy",
-        "Dairy|dairy",
-        "Beverages (Tea/Coffee/Juices)|beverages",
-        "Beauty & Hygiene|beauty-hygiene",
-        "Skin Care|skin-care",
-        "Hair Care|hair-care",
-        "Bath & Hand Wash|bath-hand-wash",
-        "Cleaning & Household|cleaning-household",
-        "Detergents & Dishwash|detergents-dishwash",
-        "Gourmet & World Food|gourmet-world-food",
-        "Kitchen, Garden & Pets|kitchen-garden-pets",
-        "Fruits & Vegetables|fruits-vegetables"
+        "Baby Care|baby-care|pc",
+        "Diapers & Wipes|diapers-wipes|pc",
+        "Snacks & Branded Foods|snacks-branded-foods|pc",
+        "Biscuits & Cookies|biscuits-cookies|pc",
+        "Chocolates & Candies|chocolates-candies|pc",
+        "Foodgrains, Oil & Masala|foodgrains-oil-masala|pc",
+        "Edible Oils & Ghee|edible-oils-ghee|pc",
+        "Dry Fruits|dry-fruits|pc",
+        "Bakery, Cakes & Dairy|bakery-cakes-dairy|pc",
+        "Dairy|dairy|pc",
+        "Beverages (Tea/Coffee)|beverages|pc",
+        "Beauty & Hygiene|beauty-hygiene|pc",
+        "Skin Care|skin-care|pc",
+        "Hair Care|hair-care|pc",
+        "Bath & Hand Wash|bath-hand-wash|pc",
+        "Cleaning & Household|cleaning-household|pc",
+        "Detergents & Dishwash|detergents-dishwash|pc",
+        "Gourmet & World Food|gourmet-world-food|pc",
+        "Kitchen & Home Needs|kitchen-garden-pets|pc",
+        "Fruits & Vegetables|fruits-vegetables|pc"
     ].map(s => {
         const [n, slug, t] = s.split('|');
         return { name: n, slug, type: t || 'pc' };
@@ -62,11 +62,24 @@
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-    const fetchJSON = async (url) => {
-        try {
-            const res = await fetch(url, { headers: CFG.hdrs() });
-            return res.ok ? await res.json() : null;
-        } catch { return null; }
+    // Resilient fetch with automatic retry on rate limiting
+    const fetchJSON = async (url, retries = 2) => {
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                const res = await fetch(url, { headers: CFG.hdrs() });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data) return data;
+                } else if (res.status === 429 || res.status === 503) {
+                    await sleep(600 * (attempt + 1));
+                    continue;
+                }
+            } catch (err) {
+                if (attempt === retries) return null;
+                await sleep(500 * (attempt + 1));
+            }
+        }
+        return null;
     };
 
     const getItems = (d) => {
@@ -96,7 +109,7 @@
         if (mrp > 0 || sp > 0) {
             const url = p.absolute_url ? (p.absolute_url.startsWith('http') ? p.absolute_url : 'https://www.bigbasket.com' + p.absolute_url) : `https://www.bigbasket.com/pd/${p.id || ''}`;
             return {
-                id: p.id || Math.random().toString(36).substring(7),
+                id: String(p.id || Math.random().toString(36).substring(7)),
                 name: (p.desc || p.p_desc || p.name || 'Product') + (p.w ? ` (${p.w})` : ''),
                 brand: p.brand?.name || p.p_brand || 'BigBasket',
                 mrp: parseFloat(mrp.toFixed(2)),
@@ -130,37 +143,37 @@
 
     const scanCategory = async (cat, onProg) => {
         let res = [];
-        if (onProg) onProg(`Scanning ${cat.name} (P1 & P2)...`);
+        let curType = cat.type;
 
-        // 1. Fetch Page 1 and Page 2 concurrently
+        if (onProg) onProg(`Scanning ${cat.name}...`);
+
         const makeUrl = (type, slug, page) => `https://www.bigbasket.com/listing-svc/v2/products?type=${type}&slug=${slug}&page=${page}&sort=dphtl`;
 
-        let [data1, data2] = await Promise.all([
-            fetchJSON(makeUrl(cat.type, cat.slug, 1)),
-            fetchJSON(makeUrl(cat.type, cat.slug, 2))
-        ]);
-
+        // 1. Fetch Page 1
+        let data1 = await fetchJSON(makeUrl(curType, cat.slug, 1));
         let p1Items = handlePage(data1, cat.name);
-        let p2Items = handlePage(data2, cat.name);
 
-        // 2. Resilient fallback across endpoint types if Page 1 returned empty
-        if (!p1Items.length && !p2Items.length) {
-            const fallbackTypes = ['ps', 'sis', 'cl'].filter(t => t !== cat.type);
-            for (const alt of fallbackTypes) {
+        // Fallback endpoint if Page 1 is empty
+        if (!p1Items.length) {
+            const fallbacks = ['ps', 'sis', 'cl'].filter(t => t !== curType);
+            for (const alt of fallbacks) {
                 const altData = await fetchJSON(makeUrl(alt, cat.slug, 1));
                 const items = handlePage(altData, cat.name);
                 if (items.length) {
                     p1Items = items;
-                    cat.type = alt;
-                    // fetch page 2 with working type
-                    const altData2 = await fetchJSON(makeUrl(alt, cat.slug, 2));
-                    p2Items = handlePage(altData2, cat.name);
+                    curType = alt;
                     break;
                 }
             }
         }
 
-        res.push(...p1Items, ...p2Items);
+        res.push(...p1Items);
+
+        // 2. Fetch Page 2 with pacing delay
+        await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
+        let data2 = await fetchJSON(makeUrl(curType, cat.slug, 2));
+        let p2Items = handlePage(data2, cat.name);
+        res.push(...p2Items);
 
         // 3. Continue to Page 3+ only if Page 2 ended with high discount >= minD%
         let page = 3;
@@ -169,7 +182,7 @@
         while (more && page <= CFG.maxP) {
             if (onProg) onProg(`Scanning ${cat.name} (P${page})...`);
             await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
-            const data = await fetchJSON(makeUrl(cat.type, cat.slug, page));
+            const data = await fetchJSON(makeUrl(curType, cat.slug, page));
             const items = handlePage(data, cat.name);
             if (items.length) {
                 res.push(...items);
@@ -179,6 +192,7 @@
                 more = false;
             }
         }
+
         return res;
     };
 
@@ -255,7 +269,7 @@
                     </div>
                 </div>
                 <div class="bb-list" id="bb-list"></div>
-                <div class="bb-st" id="bb-st">Ready (P1+P2 Parallel + >=50% OFF)</div>
+                <div class="bb-st" id="bb-st">Ready to scan categories</div>
                 <div class="bb-acts">
                     <div class="bb-row">
                         <button id="bb-f" class="bb-btn bb-btn-f" disabled>Fetch</button>
@@ -352,23 +366,33 @@
             const slugs = all ? CATS.map(c => c.slug) : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => cb.value);
             if (!slugs.length) return;
 
-            setBusy(true, `Starting 2-page parallel fetch for ${slugs.length} categories...`);
+            setBusy(true, `Starting scan for ${slugs.length} categories...`);
             prods = [];
 
             for (let i = 0; i < slugs.length; i++) {
                 const c = CATS.find(x => x.slug === slugs[i]);
                 if (c) {
                     const items = await scanCategory(c, (m) => setBusy(true, `[${i + 1}/${slugs.length}] ${m}`));
-                    if (items.length) prods.push(...items);
+                    if (items.length) {
+                        prods.push(...items);
+                        setBusy(true, `[${i + 1}/${slugs.length}] ${c.name}: +${items.length} items`);
+                    }
+                    // Respectful pacing between categories
+                    await sleep(350);
                 }
             }
 
+            // Deduplicate across (id + cat) so cross-category products aren't dropped
             const seen = new Set();
-            prods = prods.filter(p => seen.has(p.id) ? false : seen.add(p.id));
+            prods = prods.filter(p => {
+                const key = `${p.id}-${p.cat}`;
+                return seen.has(key) ? false : seen.add(key);
+            });
+
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.checked = false; });
             const catsCount = new Set(prods.map(p => p.cat)).size;
 
-            setBusy(false, `Done! Found ${prods.length} items (${catsCount} categories).`);
+            setBusy(false, `Done! Found ${prods.length} items across ${catsCount} categories.`);
             lbl.innerText = 'Select Categories';
             fBtn.disabled = true;
             fBtn.innerText = 'Fetch';
