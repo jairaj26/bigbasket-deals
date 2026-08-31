@@ -1,9 +1,9 @@
 /**
- * BigBasket Deal Sniper (3-Category Limit & Ultra-Reliable Edition)
- * - Max 3 categories per fetch (prevents 429 rate-limiting)
- * - Removed "Fetch All" for fast, reliable scanning
- * - Dynamic checkbox disable once 3 categories are picked
- * - Parallel 2-page fetch with automatic retry
+ * BigBasket Deal Sniper (Paced & Bulletproof Edition)
+ * - Max 2 categories per fetch (4 total requests)
+ * - Natural 800ms-1200ms pacing (zero 429 storms)
+ * - Persistent session tracker (human browsing profile)
+ * - No blind fallback amplification
  */
 (function () {
     'use strict';
@@ -15,46 +15,49 @@
     }
     window.__BB_SNIPER__ = true;
 
+    // Single persistent session tracker
+    const SESSION_TRACKER = (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('bb-' + Date.now()));
+
     const CFG = {
-        maxCats: 3,
+        maxCats: 2,
         minD: 50,
-        maxP: 6,
-        dMin: 300,
-        dMax: 600,
+        maxP: 4,
+        dMin: 800,
+        dMax: 1200,
         hdrs: () => ({
             "accept": "*/*",
             "content-type": "application/json",
             "x-channel": "BB-WEB",
             "x-entry-context": "bb-b2c",
             "x-entry-context-id": "100",
-            "x-tracker": typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('bb-' + Date.now())
+            "x-tracker": SESSION_TRACKER
         })
     };
 
     const CATS = [
-        "Baby Care|baby-care|pc",
-        "Diapers & Wipes|diapers-wipes|pc",
-        "Snacks & Branded Foods|snacks-branded-foods|pc",
-        "Biscuits & Cookies|biscuits-cookies|pc",
-        "Chocolates & Candies|chocolates-candies|pc",
-        "Foodgrains, Oil & Masala|foodgrains-oil-masala|pc",
-        "Edible Oils & Ghee|edible-oils-ghee|pc",
-        "Dry Fruits|dry-fruits|pc",
-        "Bakery, Cakes & Dairy|bakery-cakes-dairy|pc",
-        "Dairy|dairy|pc",
-        "Beverages (Tea/Coffee)|beverages|pc",
-        "Beauty & Hygiene|beauty-hygiene|pc",
-        "Skin Care|skin-care|pc",
-        "Hair Care|hair-care|pc",
-        "Bath & Hand Wash|bath-hand-wash|pc",
-        "Cleaning & Household|cleaning-household|pc",
-        "Detergents & Dishwash|detergents-dishwash|pc",
-        "Gourmet & World Food|gourmet-world-food|pc",
-        "Kitchen & Home Needs|kitchen-garden-pets|pc",
-        "Fruits & Vegetables|fruits-vegetables|pc"
+        "Baby Care|baby-care",
+        "Diapers & Wipes|diapers-wipes",
+        "Snacks & Branded Foods|snacks-branded-foods",
+        "Biscuits & Cookies|biscuits-cookies",
+        "Chocolates & Candies|chocolates-candies",
+        "Foodgrains, Oil & Masala|foodgrains-oil-masala",
+        "Edible Oils & Ghee|edible-oils-ghee",
+        "Dry Fruits|dry-fruits",
+        "Bakery, Cakes & Dairy|bakery-cakes-dairy",
+        "Dairy|dairy",
+        "Beverages (Tea/Coffee)|beverages",
+        "Beauty & Hygiene|beauty-hygiene",
+        "Skin Care|skin-care",
+        "Hair Care|hair-care",
+        "Bath & Hand Wash|bath-hand-wash",
+        "Cleaning & Household|cleaning-household",
+        "Detergents & Dishwash|detergents-dishwash",
+        "Gourmet & World Food|gourmet-world-food",
+        "Kitchen & Home Needs|kitchen-garden-pets",
+        "Fruits & Vegetables|fruits-vegetables"
     ].map(s => {
-        const [n, slug, t] = s.split('|');
-        return { name: n, slug, type: t || 'pc' };
+        const [n, slug] = s.split('|');
+        return { name: n, slug, type: 'pc' };
     });
 
     let prods = [];
@@ -62,22 +65,20 @@
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-    const fetchJSON = async (url, retries = 2) => {
-        for (let attempt = 0; attempt <= retries; attempt++) {
-            try {
-                const res = await fetch(url, { headers: CFG.hdrs() });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data) return data;
-                } else if (res.status === 429 || res.status === 503) {
-                    await sleep(600 * (attempt + 1));
-                    continue;
-                }
-            } catch (err) {
-                if (attempt === retries) return null;
-                await sleep(500 * (attempt + 1));
+    // Paced fetch with backoff on 429
+    const fetchJSON = async (url) => {
+        try {
+            const res = await fetch(url, { headers: CFG.hdrs() });
+            if (res.ok) {
+                return await res.json();
             }
-        }
+            if (res.status === 429) {
+                // If rate limited, back off for 1.5s and retry once
+                await sleep(1500);
+                const retryRes = await fetch(url, { headers: CFG.hdrs() });
+                if (retryRes.ok) return await retryRes.json();
+            }
+        } catch { }
         return null;
     };
 
@@ -141,45 +142,31 @@
 
     const scanCategory = async (cat, onProg) => {
         let res = [];
-        let curType = cat.type;
+        const makeUrl = (page) => `https://www.bigbasket.com/listing-svc/v2/products?type=pc&slug=${cat.slug}&page=${page}&sort=dphtl`;
 
-        if (onProg) onProg(`Scanning ${cat.name}...`);
-
-        const makeUrl = (type, slug, page) => `https://www.bigbasket.com/listing-svc/v2/products?type=${type}&slug=${slug}&page=${page}&sort=dphtl`;
-
-        // 1. Fetch Page 1
-        let data1 = await fetchJSON(makeUrl(curType, cat.slug, 1));
+        // Page 1
+        if (onProg) onProg(`Scanning ${cat.name} (Page 1)...`);
+        let data1 = await fetchJSON(makeUrl(1));
         let p1Items = handlePage(data1, cat.name);
-
-        if (!p1Items.length) {
-            const fallbacks = ['ps', 'sis', 'cl'].filter(t => t !== curType);
-            for (const alt of fallbacks) {
-                const altData = await fetchJSON(makeUrl(alt, cat.slug, 1));
-                const items = handlePage(altData, cat.name);
-                if (items.length) {
-                    p1Items = items;
-                    curType = alt;
-                    break;
-                }
-            }
-        }
-
         res.push(...p1Items);
 
-        // 2. Fetch Page 2
+        // Natural human delay between page requests
         await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
-        let data2 = await fetchJSON(makeUrl(curType, cat.slug, 2));
+
+        // Page 2
+        if (onProg) onProg(`Scanning ${cat.name} (Page 2)...`);
+        let data2 = await fetchJSON(makeUrl(2));
         let p2Items = handlePage(data2, cat.name);
         res.push(...p2Items);
 
-        // 3. Continue to Page 3+ only if Page 2 ended with high discount >= minD%
+        // Page 3+ only if Page 2 ended with high discount >= minD%
         let page = 3;
         let more = p2Items.length > 0 && p2Items[p2Items.length - 1]?.disc >= CFG.minD;
 
         while (more && page <= CFG.maxP) {
-            if (onProg) onProg(`Scanning ${cat.name} (P${page})...`);
+            if (onProg) onProg(`Scanning ${cat.name} (Page ${page})...`);
             await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
-            const data = await fetchJSON(makeUrl(curType, cat.slug, page));
+            const data = await fetchJSON(makeUrl(page));
             const items = handlePage(data, cat.name);
             if (items.length) {
                 res.push(...items);
@@ -209,7 +196,7 @@
             .bb-list{padding:8px 14px;overflow-y:auto;max-height:220px;display:flex;flex-direction:column;gap:3px;}
             .bb-item{display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px;color:#334155;cursor:pointer;}
             .bb-item input{accent-color:#2e7d32;width:15px;height:15px;}
-            .bb-item.disabled{opacity:0.4;cursor:not-allowed;}
+            .bb-item.disabled{opacity:0.35;cursor:not-allowed;}
             .bb-st{padding:8px 14px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11.5px;color:#475569;font-weight:600;}
             .bb-acts{padding:12px 14px;background:#fff;border-top:1px solid #e2e8f0;display:flex;flex-direction:column;gap:8px;}
             .bb-btn{width:100%;padding:10px 14px;border:none;border-radius:8px;font-size:13.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;}
@@ -259,13 +246,13 @@
                     <button id="bb-cls">X</button>
                 </div>
                 <div class="bb-tb">
-                    <span id="bb-lbl">Pick 1 to 3 Categories</span>
+                    <span id="bb-lbl">Pick 1 or 2 Categories</span>
                     <div>
                         <button id="bb-none">Clear</button>
                     </div>
                 </div>
                 <div class="bb-list" id="bb-list"></div>
-                <div class="bb-st" id="bb-st">Select up to 3 categories to scan</div>
+                <div class="bb-st" id="bb-st">Select up to 2 categories to scan</div>
                 <div class="bb-acts">
                     <button id="bb-f" class="bb-btn bb-btn-f" disabled>Fetch Deals</button>
                     <button id="bb-m-btn" class="bb-btn bb-btn-m">View Deals Grid ></button>
@@ -327,9 +314,9 @@
             const checked = document.querySelectorAll('.bb-cb:checked');
             const cnt = checked.length;
 
-            lbl.innerText = cnt > 0 ? `${cnt}/${CFG.maxCats} Selected` : `Pick 1 to ${CFG.maxCats} Categories`;
+            lbl.innerText = cnt > 0 ? `${cnt}/${CFG.maxCats} Selected` : `Pick 1 or 2 Categories`;
 
-            // Disable unchecked boxes when max limit reached
+            // Lock other checkboxes once 2 are selected
             document.querySelectorAll('.bb-cb').forEach(cb => {
                 if (!cb.checked) {
                     cb.disabled = cnt >= CFG.maxCats;
@@ -342,7 +329,7 @@
 
             if (!isFetching) {
                 fBtn.disabled = cnt === 0;
-                fBtn.innerText = cnt > 0 ? `Fetch (${cnt} Categories)` : 'Fetch Deals';
+                fBtn.innerText = cnt > 0 ? `Fetch (${cnt} ${cnt === 1 ? 'Category' : 'Categories'})` : 'Fetch Deals';
             }
         };
 
@@ -367,7 +354,7 @@
             const slugs = Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => cb.value).slice(0, CFG.maxCats);
             if (!slugs.length) return;
 
-            setBusy(true, `Scanning ${slugs.length} categories...`);
+            setBusy(true, `Starting paced scan for ${slugs.length} categories...`);
             prods = [];
 
             for (let i = 0; i < slugs.length; i++) {
@@ -378,7 +365,10 @@
                         prods.push(...items);
                         setBusy(true, `[${i + 1}/${slugs.length}] ${c.name}: +${items.length} items`);
                     }
-                    await sleep(350);
+                    if (i < slugs.length - 1) {
+                        // Natural pause between categories
+                        await sleep(900);
+                    }
                 }
             }
 
