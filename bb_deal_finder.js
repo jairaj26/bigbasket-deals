@@ -1,9 +1,5 @@
 /**
- * BigBasket Deal Sniper (Clean Sorting & 2-Category Edition)
- * - Max 2 categories per fetch (4 total requests)
- * - Clean sorting by Discount %, Price (Low-High / High-Low), and Rupee Savings
- * - Removed discount threshold dropdown for a simpler, faster UI
- * - Natural 800ms-1200ms pacing with persistent session tracker
+ * BigBasket Deal Sniper
  */
 (function () {
     'use strict';
@@ -15,7 +11,6 @@
     }
     window.__BB_SNIPER__ = true;
 
-    // Single persistent session tracker
     const SESSION_TRACKER = (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('bb-' + Date.now()));
 
     const CFG = {
@@ -68,9 +63,7 @@
     const fetchJSON = async (url) => {
         try {
             const res = await fetch(url, { headers: CFG.hdrs() });
-            if (res.ok) {
-                return await res.json();
-            }
+            if (res.ok) return await res.json();
             if (res.status === 429) {
                 await sleep(1500);
                 const retryRes = await fetch(url, { headers: CFG.hdrs() });
@@ -98,11 +91,6 @@
         const disc = mrp > 0 && sp > 0 ? ((mrp - sp) / mrp) * 100 : 0;
         const sav = Math.max(0, mrp - sp);
 
-        const isFlash = (p.pricing?.offer?.campaign_type === 'HO-Liquidation' ||
-            p.pricing?.offer?.offer_entry_text === 'Flash Sale!' ||
-            p.pricing?.offer?.campaign_type_slug === 'HO-Liquidation' ||
-            p.sku_deck_type === 'discounts_deck');
-
         if (mrp > 0 || sp > 0) {
             const url = p.absolute_url ? (p.absolute_url.startsWith('http') ? p.absolute_url : 'https://www.bigbasket.com' + p.absolute_url) : `https://www.bigbasket.com/pd/${p.id || ''}`;
             return {
@@ -113,7 +101,6 @@
                 sp: parseFloat(sp.toFixed(2)),
                 sav: parseFloat(sav.toFixed(2)),
                 disc: parseFloat(disc.toFixed(1)),
-                isFlash: !!isFlash,
                 img: p.images?.[0]?.s || p.images?.[0]?.m || 'https://www.bigbasket.com/static/images/default.jpg',
                 cat: catName,
                 url
@@ -142,7 +129,6 @@
         let res = [];
         const makeUrl = (page) => `https://www.bigbasket.com/listing-svc/v2/products?type=pc&slug=${cat.slug}&page=${page}&sort=dphtl`;
 
-        // Page 1
         if (onProg) onProg(`Scanning ${cat.name} (Page 1)...`);
         let data1 = await fetchJSON(makeUrl(1));
         let p1Items = handlePage(data1, cat.name);
@@ -150,13 +136,11 @@
 
         await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
 
-        // Page 2
         if (onProg) onProg(`Scanning ${cat.name} (Page 2)...`);
         let data2 = await fetchJSON(makeUrl(2));
         let p2Items = handlePage(data2, cat.name);
         res.push(...p2Items);
 
-        // Page 3+ only if Page 2 ended with high discount >= minD%
         let page = 3;
         let more = p2Items.length > 0 && p2Items[p2Items.length - 1]?.disc >= CFG.minD;
 
@@ -200,7 +184,6 @@
             .bb-btn:disabled{opacity:0.45;cursor:not-allowed;}
             .bb-btn-f{background:#2e7d32;color:#fff;}
             .bb-btn-m{background:#1976d2;color:#fff;display:none;box-shadow:0 4px 12px rgba(25,118,210,0.3);}
-            
             #bb-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:#f8fafc;z-index:2147483646;display:none;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:#0f172a;}
             .bb-m-top{background:#fff;padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:10px;position:sticky;top:0;z-index:10;}
             .bb-m-th{display:flex;justify-content:space-between;align-items:center;}
@@ -211,21 +194,19 @@
             .bb-m-ctrl input,.bb-m-ctrl select{padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;outline:none;}
             .bb-m-body{flex:1;overflow-y:auto;padding:20px;}
             .bb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;}
-            .bb-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px;display:flex;flex-direction:column;position:relative;}
-            .bb-card:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,0.06);}
-            .bb-bdg{position:absolute;top:10px;left:10px;background:#e53935;color:#fff;font-size:11px;font-weight:800;padding:3px 7px;border-radius:6px;}
-            .bb-bdg.flash{background:#d97706;}
-            .bb-bdg.low{background:#4b5563;}
+            .bb-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px;display:flex;flex-direction:column;position:relative;text-decoration:none;color:inherit;cursor:pointer;transition:transform 0.15s,box-shadow 0.15s,border-color 0.15s;}
+            .bb-card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(0,0,0,0.08);border-color:#94a3b8;}
+            .bb-bdg{position:absolute;top:10px;left:10px;background:#2e7d32;color:#fff;border-radius:6px;padding:4px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.05;text-align:center;min-width:34px;box-shadow:0 2px 6px rgba(46,125,50,0.25);}
+            .bb-bdg-val{font-size:11.5px;font-weight:800;}
+            .bb-bdg-txt{font-size:8.5px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;}
             .bb-sav{position:absolute;top:10px;right:10px;background:#e8f5e9;color:#1b5e20;font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px;}
             #bb-img{width:100%;height:130px;display:flex;align-items:center;justify-content:center;background:#fafafa;border-radius:8px;margin-bottom:8px;}
             .bb-img img{max-width:100%;max-height:100%;object-fit:contain;}
             .bb-meta{display:flex;justify-content:space-between;font-size:10.5px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:4px;}
             .bb-ttl{font-size:12.5px;font-weight:600;color:#0f172a;line-height:1.4;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:35px;}
-            .bb-prc{display:flex;align-items:baseline;gap:8px;margin-top:auto;margin-bottom:8px;}
+            .bb-prc{display:flex;align-items:baseline;gap:8px;margin-top:auto;}
             .bb-sp{font-size:16px;font-weight:800;color:#0f172a;}
             #bb-mrp{font-size:12px;color:#94a3b8;text-decoration:line-through;}
-            .bb-buy{display:block;text-align:center;padding:8px;background:#2e7d32;color:#fff;text-decoration:none;border-radius:8px;font-size:12px;font-weight:700;}
-            .bb-buy:hover{background:#1b5e20;}
         `;
         document.head.appendChild(s);
     };
@@ -297,7 +278,6 @@
         const fBtn = document.getElementById('bb-f');
         const mBtn = document.getElementById('bb-m-btn');
         const lbl = document.getElementById('bb-lbl');
-        const st = document.getElementById('bb-st-txt');
 
         document.getElementById('bb-fab').onclick = () => {
             pop.style.display = pop.style.display === 'none' ? 'flex' : 'none';
@@ -310,7 +290,6 @@
 
             lbl.innerText = cnt > 0 ? `${cnt}/${CFG.maxCats} Selected` : `Pick 1 or 2 Categories`;
 
-            // Lock other checkboxes once 2 are selected
             document.querySelectorAll('.bb-cb').forEach(cb => {
                 if (!cb.checked) {
                     cb.disabled = cnt >= CFG.maxCats;
@@ -425,15 +404,17 @@
 
             document.getElementById('bb-stat').innerText = `Showing ${filtered.length} of ${prods.length} items across ${new Set(prods.map(p => p.cat)).size} categories`;
             document.getElementById('bb-grid').innerHTML = filtered.map(p => `
-                <div class="bb-card">
-                    <span class="bb-bdg ${p.isFlash ? 'flash' : (p.disc < 50 ? 'low' : '')}">${p.isFlash ? 'FLASH ' : ''}${p.disc}% OFF</span>
+                <a href="${p.url}" target="_blank" class="bb-card">
+                    <div class="bb-bdg">
+                        <span class="bb-bdg-val">${p.disc}%</span>
+                        <span class="bb-bdg-txt">OFF</span>
+                    </div>
                     <span class="bb-sav">Save Rs.${p.sav}</span>
                     <div class="bb-img"><img src="${p.img}" loading="lazy" onerror="this.src='https://www.bigbasket.com/static/images/default.jpg'"></div>
                     <div class="bb-meta"><span>${p.brand}</span><span>${p.cat}</span></div>
                     <div class="bb-ttl" title="${p.name}">${p.name}</div>
                     <div class="bb-prc"><span class="bb-sp">Rs.${p.sp}</span><span class="bb-mrp">Rs.${p.mrp}</span></div>
-                    <a href="${p.url}" target="_blank" class="bb-buy">View on BigBasket ></a>
-                </div>
+                </a>
             `).join('');
         };
 
