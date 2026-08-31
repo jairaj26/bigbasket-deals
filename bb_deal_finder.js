@@ -1,6 +1,8 @@
 /**
- * BigBasket Deal Sniper (Pure ASCII Edition with Permanent Canonical Categories)
- * Works as a standalone script or mobile/desktop bookmarklet without CSP issues
+ * BigBasket Deal Sniper (Pure ASCII Edition)
+ * - Parallel 2-Page Fetching by Default
+ * - Automatic "HO-Liquidation" & "Flash Sale" Detection
+ * - Added Baby Care & Diapers categories
  */
 (function () {
     'use strict';
@@ -15,8 +17,8 @@
     const CFG = {
         minD: 50,
         maxP: 6,
-        dMin: 400,
-        dMax: 900,
+        dMin: 300,
+        dMax: 700,
         hdrs: () => ({
             "accept": "*/*",
             "content-type": "application/json",
@@ -29,6 +31,8 @@
 
     // Permanent canonical BigBasket category slugs (type: 'pc' never expires)
     const CATS = [
+        "Baby Care|baby-care",
+        "Diapers & Wipes|diapers-wipes",
         "Atta, Rice & Dals|foodgrains-oil-masala",
         "Edible Oils & Ghee|edible-oils-ghee",
         "Dairy & Cheese|dairy",
@@ -82,6 +86,12 @@
 
         if (p.availability && (p.availability.avail_status === '002' || p.availability.is_available === false)) return null;
 
+        // Detect Flash Sale & Liquidation deals
+        const isFlash = (p.pricing?.offer?.campaign_type === 'HO-Liquidation' ||
+            p.pricing?.offer?.offer_entry_text === 'Flash Sale!' ||
+            p.pricing?.offer?.campaign_type_slug === 'HO-Liquidation' ||
+            p.sku_deck_type === 'discounts_deck');
+
         if (mrp > 0 || sp > 0) {
             const url = p.absolute_url ? (p.absolute_url.startsWith('http') ? p.absolute_url : 'https://www.bigbasket.com' + p.absolute_url) : `https://www.bigbasket.com/pd/${p.id || ''}`;
             return {
@@ -92,6 +102,7 @@
                 sp: parseFloat(sp.toFixed(2)),
                 sav: parseFloat(sav.toFixed(2)),
                 disc: parseFloat(disc.toFixed(1)),
+                isFlash: !!isFlash,
                 img: p.images?.[0]?.s || p.images?.[0]?.m || 'https://www.bigbasket.com/static/images/default.jpg',
                 cat: catName,
                 url
@@ -100,48 +111,58 @@
         return null;
     };
 
+    const handlePage = (data, catName) => {
+        const list = getItems(data);
+        let pageItems = [];
+        list.forEach(p => {
+            const item = parseProduct(p, catName);
+            if (item) pageItems.push(item);
+            if (p.children && Array.isArray(p.children)) {
+                p.children.forEach(c => {
+                    const ci = parseProduct(c, catName);
+                    if (ci) pageItems.push(ci);
+                });
+            }
+        });
+        return pageItems;
+    };
+
     const scanCategory = async (cat, onProg) => {
-        let page = 1, more = true, res = [];
+        let res = [];
+        if (onProg) onProg(`Scanning ${cat.name} (P1 & P2)...`);
+
+        // Fetch Page 1 and Page 2 in parallel for fast double coverage
+        const url1 = `https://www.bigbasket.com/listing-svc/v2/products?type=${cat.type}&slug=${cat.slug}&page=1&sort=dphtl`;
+        const url2 = `https://www.bigbasket.com/listing-svc/v2/products?type=${cat.type}&slug=${cat.slug}&page=2&sort=dphtl`;
+
+        const [data1, data2] = await Promise.all([fetchJSON(url1), fetchJSON(url2)]);
+
+        let p1Items = handlePage(data1, cat.name);
+        let p2Items = handlePage(data2, cat.name);
+
+        // Fallback between pc and sis if page 1 returned empty
+        if (!p1Items.length && !p2Items.length) {
+            const alt = cat.type === 'pc' ? 'sis' : 'pc';
+            const altData = await fetchJSON(`https://www.bigbasket.com/listing-svc/v2/products?type=${alt}&slug=${cat.slug}&page=1&sort=dphtl`);
+            p1Items = handlePage(altData, cat.name);
+            if (p1Items.length) cat.type = alt;
+        }
+
+        res.push(...p1Items, ...p2Items);
+
+        // Continue to Page 3+ only if Page 2 ended with high discount >= minD%
+        let page = 3;
+        let more = p2Items.length > 0 && p2Items[p2Items.length - 1]?.disc >= CFG.minD;
 
         while (more && page <= CFG.maxP) {
             if (onProg) onProg(`Scanning ${cat.name} (P${page})...`);
-            let data = await fetchJSON(`https://www.bigbasket.com/listing-svc/v2/products?type=${cat.type}&slug=${cat.slug}&page=${page}&sort=dphtl`);
-
-            // Fallback between pc and sis if needed
-            if (page === 1 && !getItems(data).length) {
-                const alt = cat.type === 'pc' ? 'sis' : 'pc';
-                const altData = await fetchJSON(`https://www.bigbasket.com/listing-svc/v2/products?type=${alt}&slug=${cat.slug}&page=${page}&sort=dphtl`);
-                if (getItems(altData).length) {
-                    data = altData;
-                    cat.type = alt;
-                }
-            }
-
             await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
-            const list = getItems(data);
-            if (!list.length) { more = false; break; }
-
-            let pageItems = [];
-            list.forEach(p => {
-                const item = parseProduct(p, cat.name);
-                if (item) pageItems.push(item);
-                if (p.children && Array.isArray(p.children)) {
-                    p.children.forEach(c => {
-                        const ci = parseProduct(c, cat.name);
-                        if (ci) pageItems.push(ci);
-                    });
-                }
-            });
-
-            if (pageItems.length > 0) {
-                res.push(...pageItems);
-                // Smart pagination: continue to Page 2+ only if last item has >= minD% discount
-                const last = pageItems[pageItems.length - 1];
-                if (last.disc >= CFG.minD) {
-                    page++;
-                } else {
-                    more = false;
-                }
+            const data = await fetchJSON(`https://www.bigbasket.com/listing-svc/v2/products?type=${cat.type}&slug=${cat.slug}&page=${page}&sort=dphtl`);
+            const items = handlePage(data, cat.name);
+            if (items.length) {
+                res.push(...items);
+                more = items[items.length - 1]?.disc >= CFG.minD;
+                page++;
             } else {
                 more = false;
             }
@@ -187,15 +208,16 @@
             .bb-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px;display:flex;flex-direction:column;position:relative;}
             .bb-card:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,0.06);}
             .bb-bdg{position:absolute;top:10px;left:10px;background:#e53935;color:#fff;font-size:11px;font-weight:800;padding:3px 7px;border-radius:6px;}
+            .bb-bdg.flash{background:#d97706;}
             .bb-bdg.low{background:#4b5563;}
             .bb-sav{position:absolute;top:10px;right:10px;background:#e8f5e9;color:#1b5e20;font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px;}
-            .bb-img{width:100%;height:130px;display:flex;align-items:center;justify-content:center;background:#fafafa;border-radius:8px;margin-bottom:8px;}
+            #bb-img{width:100%;height:130px;display:flex;align-items:center;justify-content:center;background:#fafafa;border-radius:8px;margin-bottom:8px;}
             .bb-img img{max-width:100%;max-height:100%;object-fit:contain;}
             .bb-meta{display:flex;justify-content:space-between;font-size:10.5px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:4px;}
             .bb-ttl{font-size:12.5px;font-weight:600;color:#0f172a;line-height:1.4;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:35px;}
             .bb-prc{display:flex;align-items:baseline;gap:8px;margin-top:auto;margin-bottom:8px;}
             .bb-sp{font-size:16px;font-weight:800;color:#0f172a;}
-            .bb-mrp{font-size:12px;color:#94a3b8;text-decoration:line-through;}
+            #bb-mrp{font-size:12px;color:#94a3b8;text-decoration:line-through;}
             .bb-buy{display:block;text-align:center;padding:8px;background:#2e7d32;color:#fff;text-decoration:none;border-radius:8px;font-size:12px;font-weight:700;}
             .bb-buy:hover{background:#1b5e20;}
         `;
@@ -221,7 +243,7 @@
                     </div>
                 </div>
                 <div class="bb-list" id="bb-list"></div>
-                <div class="bb-st" id="bb-st">Ready (Page 1 + >=50% OFF)</div>
+                <div class="bb-st" id="bb-st">Ready (P1+P2 Parallel + >=50% OFF)</div>
                 <div class="bb-acts">
                     <div class="bb-row">
                         <button id="bb-f" class="bb-btn bb-btn-f" disabled>Fetch</button>
@@ -247,6 +269,7 @@
                     <select id="bb-fc"><option value="all">All Categories</option></select>
                     <select id="bb-fd">
                         <option value="0">All Discounts (Show All)</option>
+                        <option value="flash">Flash / Clearance Only</option>
                         <option value="30">>= 30% OFF</option>
                         <option value="50">>= 50% OFF</option>
                         <option value="60">>= 60% OFF</option>
@@ -317,7 +340,7 @@
             const slugs = all ? CATS.map(c => c.slug) : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => cb.value);
             if (!slugs.length) return;
 
-            setBusy(true, `Starting fetch for ${slugs.length} categories...`);
+            setBusy(true, `Starting 2-page parallel fetch for ${slugs.length} categories...`);
             prods = [];
 
             for (let i = 0; i < slugs.length; i++) {
@@ -363,15 +386,26 @@
         const renderModal = () => {
             const q = document.getElementById('bb-q').value.toLowerCase().trim();
             const c = document.getElementById('bb-fc').value;
-            const md = parseFloat(document.getElementById('bb-fd').value) || 0;
+            const filterVal = document.getElementById('bb-fd').value;
 
-            let filtered = prods.filter(p => (!q || p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q)) && (c === 'all' || p.cat === c) && p.disc >= md);
+            let filtered = prods.filter(p => {
+                const matchQ = !q || p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q);
+                const matchC = c === 'all' || p.cat === c;
+                let matchD = true;
+                if (filterVal === 'flash') {
+                    matchD = p.isFlash;
+                } else {
+                    matchD = p.disc >= (parseFloat(filterVal) || 0);
+                }
+                return matchQ && matchC && matchD;
+            });
+
             filtered.sort((a, b) => b.disc - a.disc);
 
             document.getElementById('bb-stat').innerText = `Showing ${filtered.length} of ${prods.length} items across ${new Set(prods.map(p => p.cat)).size} categories`;
             document.getElementById('bb-grid').innerHTML = filtered.map(p => `
                 <div class="bb-card">
-                    <span class="bb-bdg ${p.disc < 50 ? 'low' : ''}">${p.disc}% OFF</span>
+                    <span class="bb-bdg ${p.isFlash ? 'flash' : (p.disc < 50 ? 'low' : '')}">${p.isFlash ? 'FLASH ' : ''}${p.disc}% OFF</span>
                     <span class="bb-sav">Save Rs.${p.sav}</span>
                     <div class="bb-img"><img src="${p.img}" loading="lazy" onerror="this.src='https://www.bigbasket.com/static/images/default.jpg'"></div>
                     <div class="bb-meta"><span>${p.brand}</span><span>${p.cat}</span></div>
