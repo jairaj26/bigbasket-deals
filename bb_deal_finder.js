@@ -1,8 +1,9 @@
 /**
- * BigBasket Deal Sniper (Pure ASCII Edition)
+ * BigBasket Deal Sniper (Comprehensive Category Edition)
+ * - Covers all 11 Master Categories + Key High-Deal Sub-Aisles
+ * - Multi-Type Endpoint Fallbacks (pc -> ps -> cl -> sis)
  * - Parallel 2-Page Fetching by Default
- * - Automatic "HO-Liquidation" & "Flash Sale" Detection
- * - Added Baby Care & Diapers categories
+ * - Automatic Flash/Liquidation Detection
  */
 (function () {
     'use strict';
@@ -18,7 +19,7 @@
         minD: 50,
         maxP: 6,
         dMin: 300,
-        dMax: 700,
+        dMax: 600,
         hdrs: () => ({
             "accept": "*/*",
             "content-type": "application/json",
@@ -29,26 +30,28 @@
         })
     };
 
-    // Permanent canonical BigBasket category slugs (type: 'pc' never expires)
+    // Complete set of 11 Master Categories + Top Subcategories
     const CATS = [
-        "Baby Care|baby-care",
+        "Baby Care (All)|baby-care",
         "Diapers & Wipes|diapers-wipes",
-        "Atta, Rice & Dals|foodgrains-oil-masala",
-        "Edible Oils & Ghee|edible-oils-ghee",
-        "Dairy & Cheese|dairy",
-        "Bakery & Cakes|bakery-cakes",
-        "Beverages, Tea & Coffee|beverages",
-        "Snacks & Namkeen|snacks-branded-foods",
+        "Snacks & Branded Foods|snacks-branded-foods",
         "Biscuits & Cookies|biscuits-cookies",
-        "Chocolates & Sweets|chocolates-candies",
-        "Instant & Ready Foods|ready-to-cook-eat",
-        "Bath & Body Care|bath-hand-wash",
+        "Chocolates & Candies|chocolates-candies",
+        "Foodgrains, Oil & Masala|foodgrains-oil-masala",
+        "Edible Oils & Ghee|edible-oils-ghee",
+        "Dry Fruits|dry-fruits",
+        "Bakery, Cakes & Dairy|bakery-cakes-dairy",
+        "Dairy|dairy",
+        "Beverages (Tea/Coffee/Juices)|beverages",
+        "Beauty & Hygiene|beauty-hygiene",
+        "Skin Care|skin-care",
         "Hair Care|hair-care",
-        "Beauty & Skin Care|skin-care",
-        "Cleaning & Detergents|detergents-dishwash",
-        "Household Cleaners|all-purpose-cleaners",
+        "Bath & Hand Wash|bath-hand-wash",
+        "Cleaning & Household|cleaning-household",
+        "Detergents & Dishwash|detergents-dishwash",
         "Gourmet & World Food|gourmet-world-food",
-        "Kitchen Accessories|kitchen-accessories"
+        "Kitchen, Garden & Pets|kitchen-garden-pets",
+        "Fruits & Vegetables|fruits-vegetables"
     ].map(s => {
         const [n, slug, t] = s.split('|');
         return { name: n, slug, type: t || 'pc' };
@@ -83,8 +86,6 @@
         if (sp <= 0 && mrp > 0) sp = mrp;
         const disc = mrp > 0 && sp > 0 ? ((mrp - sp) / mrp) * 100 : 0;
         const sav = Math.max(0, mrp - sp);
-
-        if (p.availability && (p.availability.avail_status === '002' || p.availability.is_available === false)) return null;
 
         // Detect Flash Sale & Liquidation deals
         const isFlash = (p.pricing?.offer?.campaign_type === 'HO-Liquidation' ||
@@ -131,33 +132,44 @@
         let res = [];
         if (onProg) onProg(`Scanning ${cat.name} (P1 & P2)...`);
 
-        // Fetch Page 1 and Page 2 in parallel for fast double coverage
-        const url1 = `https://www.bigbasket.com/listing-svc/v2/products?type=${cat.type}&slug=${cat.slug}&page=1&sort=dphtl`;
-        const url2 = `https://www.bigbasket.com/listing-svc/v2/products?type=${cat.type}&slug=${cat.slug}&page=2&sort=dphtl`;
+        // 1. Fetch Page 1 and Page 2 concurrently
+        const makeUrl = (type, slug, page) => `https://www.bigbasket.com/listing-svc/v2/products?type=${type}&slug=${slug}&page=${page}&sort=dphtl`;
 
-        const [data1, data2] = await Promise.all([fetchJSON(url1), fetchJSON(url2)]);
+        let [data1, data2] = await Promise.all([
+            fetchJSON(makeUrl(cat.type, cat.slug, 1)),
+            fetchJSON(makeUrl(cat.type, cat.slug, 2))
+        ]);
 
         let p1Items = handlePage(data1, cat.name);
         let p2Items = handlePage(data2, cat.name);
 
-        // Fallback between pc and sis if page 1 returned empty
+        // 2. Resilient fallback across endpoint types if Page 1 returned empty
         if (!p1Items.length && !p2Items.length) {
-            const alt = cat.type === 'pc' ? 'sis' : 'pc';
-            const altData = await fetchJSON(`https://www.bigbasket.com/listing-svc/v2/products?type=${alt}&slug=${cat.slug}&page=1&sort=dphtl`);
-            p1Items = handlePage(altData, cat.name);
-            if (p1Items.length) cat.type = alt;
+            const fallbackTypes = ['ps', 'sis', 'cl'].filter(t => t !== cat.type);
+            for (const alt of fallbackTypes) {
+                const altData = await fetchJSON(makeUrl(alt, cat.slug, 1));
+                const items = handlePage(altData, cat.name);
+                if (items.length) {
+                    p1Items = items;
+                    cat.type = alt;
+                    // fetch page 2 with working type
+                    const altData2 = await fetchJSON(makeUrl(alt, cat.slug, 2));
+                    p2Items = handlePage(altData2, cat.name);
+                    break;
+                }
+            }
         }
 
         res.push(...p1Items, ...p2Items);
 
-        // Continue to Page 3+ only if Page 2 ended with high discount >= minD%
+        // 3. Continue to Page 3+ only if Page 2 ended with high discount >= minD%
         let page = 3;
         let more = p2Items.length > 0 && p2Items[p2Items.length - 1]?.disc >= CFG.minD;
 
         while (more && page <= CFG.maxP) {
             if (onProg) onProg(`Scanning ${cat.name} (P${page})...`);
             await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
-            const data = await fetchJSON(`https://www.bigbasket.com/listing-svc/v2/products?type=${cat.type}&slug=${cat.slug}&page=${page}&sort=dphtl`);
+            const data = await fetchJSON(makeUrl(cat.type, cat.slug, page));
             const items = handlePage(data, cat.name);
             if (items.length) {
                 res.push(...items);
