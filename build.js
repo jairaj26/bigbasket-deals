@@ -13,11 +13,12 @@ const bookmarklet = 'javascript:' + code;
 fs.writeFileSync(path.join(__dirname, 'bookmarklet.txt'), bookmarklet, 'utf8');
 console.log('Final Bookmarklet Size:', bookmarklet.length, 'characters (~' + (bookmarklet.length / 1024).toFixed(2) + ' KB)');
 
-// Update index.html
+// Update index.html cleanly
 const indexPath = path.join(__dirname, 'index.html');
 if (fs.existsSync(indexPath)) {
     let html = fs.readFileSync(indexPath, 'utf8');
-    html = html.replace(/href="javascript:[^"]+"/, 'href="' + bookmarklet.replace(/"/g, '&quot;') + '"');
+    html = html.replace(/<script id="bm-code-src" type="text\/plain">[\s\S]*?<\/script>/,
+        '<script id="bm-code-src" type="text/plain">\n' + bookmarklet + '\n  </script>');
     fs.writeFileSync(indexPath, html, 'utf8');
-    console.log('index.html updated successfully with new bookmarklet');
+    console.log('index.html updated cleanly with new bookmarklet');
 }
