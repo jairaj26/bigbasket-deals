@@ -1,9 +1,9 @@
 /**
- * BigBasket Deal Sniper (Reliable Fetch & Anti-Throttling Edition)
- * - Retries on rate-limiting / failed requests
- * - Respectful pacing between category requests to prevent Akamai throttling
- * - Composite deduplication to prevent cross-category item drops
- * - Live category item counters in status bar
+ * BigBasket Deal Sniper (3-Category Limit & Ultra-Reliable Edition)
+ * - Max 3 categories per fetch (prevents 429 rate-limiting)
+ * - Removed "Fetch All" for fast, reliable scanning
+ * - Dynamic checkbox disable once 3 categories are picked
+ * - Parallel 2-page fetch with automatic retry
  */
 (function () {
     'use strict';
@@ -16,10 +16,11 @@
     window.__BB_SNIPER__ = true;
 
     const CFG = {
+        maxCats: 3,
         minD: 50,
         maxP: 6,
-        dMin: 400,
-        dMax: 800,
+        dMin: 300,
+        dMax: 600,
         hdrs: () => ({
             "accept": "*/*",
             "content-type": "application/json",
@@ -30,7 +31,6 @@
         })
     };
 
-    // Clean Master Categories & Top High-Deal Sub-Aisles
     const CATS = [
         "Baby Care|baby-care|pc",
         "Diapers & Wipes|diapers-wipes|pc",
@@ -62,7 +62,6 @@
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-    // Resilient fetch with automatic retry on rate limiting
     const fetchJSON = async (url, retries = 2) => {
         for (let attempt = 0; attempt <= retries; attempt++) {
             try {
@@ -100,7 +99,6 @@
         const disc = mrp > 0 && sp > 0 ? ((mrp - sp) / mrp) * 100 : 0;
         const sav = Math.max(0, mrp - sp);
 
-        // Detect Flash Sale & Liquidation deals
         const isFlash = (p.pricing?.offer?.campaign_type === 'HO-Liquidation' ||
             p.pricing?.offer?.offer_entry_text === 'Flash Sale!' ||
             p.pricing?.offer?.campaign_type_slug === 'HO-Liquidation' ||
@@ -153,7 +151,6 @@
         let data1 = await fetchJSON(makeUrl(curType, cat.slug, 1));
         let p1Items = handlePage(data1, cat.name);
 
-        // Fallback endpoint if Page 1 is empty
         if (!p1Items.length) {
             const fallbacks = ['ps', 'sis', 'cl'].filter(t => t !== curType);
             for (const alt of fallbacks) {
@@ -169,7 +166,7 @@
 
         res.push(...p1Items);
 
-        // 2. Fetch Page 2 with pacing delay
+        // 2. Fetch Page 2
         await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
         let data2 = await fetchJSON(makeUrl(curType, cat.slug, 2));
         let p2Items = handlePage(data2, cat.name);
@@ -212,14 +209,13 @@
             .bb-list{padding:8px 14px;overflow-y:auto;max-height:220px;display:flex;flex-direction:column;gap:3px;}
             .bb-item{display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px;color:#334155;cursor:pointer;}
             .bb-item input{accent-color:#2e7d32;width:15px;height:15px;}
+            .bb-item.disabled{opacity:0.4;cursor:not-allowed;}
             .bb-st{padding:8px 14px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11.5px;color:#475569;font-weight:600;}
             .bb-acts{padding:12px 14px;background:#fff;border-top:1px solid #e2e8f0;display:flex;flex-direction:column;gap:8px;}
-            .bb-row{display:flex;gap:8px;}
-            .bb-btn{flex:1;padding:9px 12px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+            .bb-btn{width:100%;padding:10px 14px;border:none;border-radius:8px;font-size:13.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;}
             .bb-btn:disabled{opacity:0.45;cursor:not-allowed;}
             .bb-btn-f{background:#2e7d32;color:#fff;}
-            #bb-btn-a{background:#d32f2f;color:#fff;}
-            .bb-btn-m{background:#1976d2;color:#fff;width:100%;padding:10px;display:none;box-shadow:0 4px 12px rgba(25,118,210,0.3);}
+            .bb-btn-m{background:#1976d2;color:#fff;display:none;box-shadow:0 4px 12px rgba(25,118,210,0.3);}
             
             #bb-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:#f8fafc;z-index:2147483646;display:none;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:#0f172a;}
             .bb-m-top{background:#fff;padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:10px;position:sticky;top:0;z-index:10;}
@@ -263,18 +259,15 @@
                     <button id="bb-cls">X</button>
                 </div>
                 <div class="bb-tb">
-                    <span id="bb-lbl">Select Categories</span>
+                    <span id="bb-lbl">Pick 1 to 3 Categories</span>
                     <div>
-                        <button id="bb-all">All</button> | <button id="bb-none">None</button>
+                        <button id="bb-none">Clear</button>
                     </div>
                 </div>
                 <div class="bb-list" id="bb-list"></div>
-                <div class="bb-st" id="bb-st">Ready to scan categories</div>
+                <div class="bb-st" id="bb-st">Select up to 3 categories to scan</div>
                 <div class="bb-acts">
-                    <div class="bb-row">
-                        <button id="bb-f" class="bb-btn bb-btn-f" disabled>Fetch</button>
-                        <button id="bb-a" class="bb-btn bb-btn-a">Fetch All</button>
-                    </div>
+                    <button id="bb-f" class="bb-btn bb-btn-f" disabled>Fetch Deals</button>
                     <button id="bb-m-btn" class="bb-btn bb-btn-m">View Deals Grid ></button>
                 </div>
             </div>
@@ -321,7 +314,6 @@
 
         const pop = document.getElementById('bb-pop');
         const fBtn = document.getElementById('bb-f');
-        const aBtn = document.getElementById('bb-a');
         const mBtn = document.getElementById('bb-m-btn');
         const lbl = document.getElementById('bb-lbl');
         const st = document.getElementById('bb-st');
@@ -332,20 +324,30 @@
         document.getElementById('bb-cls').onclick = () => { pop.style.display = 'none'; };
 
         const updateState = () => {
-            const cnt = document.querySelectorAll('.bb-cb:checked').length;
-            lbl.innerText = cnt > 0 ? `${cnt} Selected` : 'Select Categories';
+            const checked = document.querySelectorAll('.bb-cb:checked');
+            const cnt = checked.length;
+
+            lbl.innerText = cnt > 0 ? `${cnt}/${CFG.maxCats} Selected` : `Pick 1 to ${CFG.maxCats} Categories`;
+
+            // Disable unchecked boxes when max limit reached
+            document.querySelectorAll('.bb-cb').forEach(cb => {
+                if (!cb.checked) {
+                    cb.disabled = cnt >= CFG.maxCats;
+                    cb.parentElement.classList.toggle('disabled', cnt >= CFG.maxCats);
+                } else {
+                    cb.disabled = false;
+                    cb.parentElement.classList.remove('disabled');
+                }
+            });
+
             if (!isFetching) {
                 fBtn.disabled = cnt === 0;
-                fBtn.innerText = cnt > 0 ? `Fetch (${cnt})` : 'Fetch';
+                fBtn.innerText = cnt > 0 ? `Fetch (${cnt} Categories)` : 'Fetch Deals';
             }
         };
 
         list.addEventListener('change', updateState);
-        document.getElementById('bb-all').onclick = () => {
-            if (isFetching) return;
-            document.querySelectorAll('.bb-cb').forEach(cb => { cb.checked = true; });
-            updateState();
-        };
+
         document.getElementById('bb-none').onclick = () => {
             if (isFetching) return;
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.checked = false; });
@@ -356,17 +358,16 @@
             isFetching = busy;
             if (msg) st.innerText = msg;
             fBtn.disabled = busy || document.querySelectorAll('.bb-cb:checked').length === 0;
-            aBtn.disabled = busy;
             mBtn.disabled = busy;
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.disabled = busy; });
         };
 
-        const runFetch = async (all = false) => {
+        const runFetch = async () => {
             if (isFetching) return;
-            const slugs = all ? CATS.map(c => c.slug) : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => cb.value);
+            const slugs = Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => cb.value).slice(0, CFG.maxCats);
             if (!slugs.length) return;
 
-            setBusy(true, `Starting scan for ${slugs.length} categories...`);
+            setBusy(true, `Scanning ${slugs.length} categories...`);
             prods = [];
 
             for (let i = 0; i < slugs.length; i++) {
@@ -377,12 +378,10 @@
                         prods.push(...items);
                         setBusy(true, `[${i + 1}/${slugs.length}] ${c.name}: +${items.length} items`);
                     }
-                    // Respectful pacing between categories
                     await sleep(350);
                 }
             }
 
-            // Deduplicate across (id + cat) so cross-category products aren't dropped
             const seen = new Set();
             prods = prods.filter(p => {
                 const key = `${p.id}-${p.cat}`;
@@ -390,12 +389,13 @@
             });
 
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.checked = false; });
-            const catsCount = new Set(prods.map(p => p.cat)).size;
+            updateState();
 
+            const catsCount = new Set(prods.map(p => p.cat)).size;
             setBusy(false, `Done! Found ${prods.length} items across ${catsCount} categories.`);
-            lbl.innerText = 'Select Categories';
+
             fBtn.disabled = true;
-            fBtn.innerText = 'Fetch';
+            fBtn.innerText = 'Fetch Deals';
 
             if (prods.length > 0) {
                 mBtn.style.display = 'flex';
@@ -404,8 +404,7 @@
             }
         };
 
-        fBtn.onclick = () => runFetch(false);
-        aBtn.onclick = () => runFetch(true);
+        fBtn.onclick = runFetch;
 
         const openModal = () => {
             if (!prods.length) return alert('No products fetched yet!');
