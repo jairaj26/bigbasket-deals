@@ -1,9 +1,9 @@
 /**
- * BigBasket Deal Sniper (Paced & Bulletproof Edition)
+ * BigBasket Deal Sniper (Clean Sorting & 2-Category Edition)
  * - Max 2 categories per fetch (4 total requests)
- * - Natural 800ms-1200ms pacing (zero 429 storms)
- * - Persistent session tracker (human browsing profile)
- * - No blind fallback amplification
+ * - Clean sorting by Discount %, Price (Low-High / High-Low), and Rupee Savings
+ * - Removed discount threshold dropdown for a simpler, faster UI
+ * - Natural 800ms-1200ms pacing with persistent session tracker
  */
 (function () {
     'use strict';
@@ -65,7 +65,6 @@
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-    // Paced fetch with backoff on 429
     const fetchJSON = async (url) => {
         try {
             const res = await fetch(url, { headers: CFG.hdrs() });
@@ -73,7 +72,6 @@
                 return await res.json();
             }
             if (res.status === 429) {
-                // If rate limited, back off for 1.5s and retry once
                 await sleep(1500);
                 const retryRes = await fetch(url, { headers: CFG.hdrs() });
                 if (retryRes.ok) return await retryRes.json();
@@ -150,7 +148,6 @@
         let p1Items = handlePage(data1, cat.name);
         res.push(...p1Items);
 
-        // Natural human delay between page requests
         await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
 
         // Page 2
@@ -273,14 +270,11 @@
                 <div class="bb-m-ctrl">
                     <input type="text" id="bb-q" placeholder="Search brand or product...">
                     <select id="bb-fc"><option value="all">All Categories</option></select>
-                    <select id="bb-fd">
-                        <option value="0">All Discounts (Show All)</option>
-                        <option value="flash">Flash / Clearance Only</option>
-                        <option value="30">>= 30% OFF</option>
-                        <option value="50">>= 50% OFF</option>
-                        <option value="60">>= 60% OFF</option>
-                        <option value="70">>= 70% OFF</option>
-                        <option value="80">>= 80% OFF</option>
+                    <select id="bb-st">
+                        <option value="d">Sort: Highest Discount %</option>
+                        <option value="pa">Sort: Price Low to High</option>
+                        <option value="pd">Sort: Price High to Low</option>
+                        <option value="s">Sort: Biggest Rupee Savings</option>
                     </select>
                 </div>
             </div>
@@ -303,7 +297,7 @@
         const fBtn = document.getElementById('bb-f');
         const mBtn = document.getElementById('bb-m-btn');
         const lbl = document.getElementById('bb-lbl');
-        const st = document.getElementById('bb-st');
+        const st = document.getElementById('bb-st-txt');
 
         document.getElementById('bb-fab').onclick = () => {
             pop.style.display = pop.style.display === 'none' ? 'flex' : 'none';
@@ -343,7 +337,8 @@
 
         const setBusy = (busy, msg = '') => {
             isFetching = busy;
-            if (msg) st.innerText = msg;
+            const statusEl = document.getElementById('bb-st');
+            if (statusEl && msg) statusEl.innerText = msg;
             fBtn.disabled = busy || document.querySelectorAll('.bb-cb:checked').length === 0;
             mBtn.disabled = busy;
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.disabled = busy; });
@@ -366,7 +361,6 @@
                         setBusy(true, `[${i + 1}/${slugs.length}] ${c.name}: +${items.length} items`);
                     }
                     if (i < slugs.length - 1) {
-                        // Natural pause between categories
                         await sleep(900);
                     }
                 }
@@ -411,21 +405,23 @@
         const renderModal = () => {
             const q = document.getElementById('bb-q').value.toLowerCase().trim();
             const c = document.getElementById('bb-fc').value;
-            const filterVal = document.getElementById('bb-fd').value;
+            const sortMode = document.getElementById('bb-st').value;
 
             let filtered = prods.filter(p => {
                 const matchQ = !q || p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q);
                 const matchC = c === 'all' || p.cat === c;
-                let matchD = true;
-                if (filterVal === 'flash') {
-                    matchD = p.isFlash;
-                } else {
-                    matchD = p.disc >= (parseFloat(filterVal) || 0);
-                }
-                return matchQ && matchC && matchD;
+                return matchQ && matchC;
             });
 
-            filtered.sort((a, b) => b.disc - a.disc);
+            if (sortMode === 'pa') {
+                filtered.sort((a, b) => a.sp - b.sp);
+            } else if (sortMode === 'pd') {
+                filtered.sort((a, b) => b.sp - a.sp);
+            } else if (sortMode === 's') {
+                filtered.sort((a, b) => b.sav - a.sav);
+            } else {
+                filtered.sort((a, b) => b.disc - a.disc);
+            }
 
             document.getElementById('bb-stat').innerText = `Showing ${filtered.length} of ${prods.length} items across ${new Set(prods.map(p => p.cat)).size} categories`;
             document.getElementById('bb-grid').innerHTML = filtered.map(p => `
@@ -445,7 +441,7 @@
         document.getElementById('bb-m-cls').onclick = () => { m.style.display = 'none'; };
         document.getElementById('bb-q').oninput = renderModal;
         document.getElementById('bb-fc').onchange = renderModal;
-        document.getElementById('bb-fd').onchange = renderModal;
+        document.getElementById('bb-st').onchange = renderModal;
     };
 
     buildUI();
