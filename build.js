@@ -4,18 +4,30 @@ const path = require('path');
 const srcPath = path.join(__dirname, 'bb_deal_finder.js');
 let code = fs.readFileSync(srcPath, 'utf8');
 
-// 1. Remove block comments
+// 1. Remove block comments /* ... */
 code = code.replace(/\/\*[\s\S]*?\*\//g, '');
 
-// 2. Remove single-line comments safely (only whole comment lines)
-code = code.split('\n').filter(line => !line.trim().startsWith('//')).join('\n');
+// 2. Remove single-line comments safely (without touching http:// or https://)
+code = code.split('\n').map(line => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('//')) return '';
+    // If line has // after code, strip it if not part of a URL
+    const idx = line.indexOf('//');
+    if (idx !== -1) {
+        const before = line.substring(0, idx);
+        if (!before.endsWith('http:') && !before.endsWith('https:')) {
+            return before;
+        }
+    }
+    return line;
+}).join('\n');
 
 // 3. Compact whitespace safely
 code = code.replace(/\r\n/g, '\n');
 code = code.replace(/\n\s+/g, '\n');
 code = code.replace(/\s+/g, ' ').trim();
 
-// Verify syntax
+// 4. Verify syntax
 try {
     new Function(code);
     console.log('✅ SYNTAX CHECK PASSED (0 Syntax Errors)');

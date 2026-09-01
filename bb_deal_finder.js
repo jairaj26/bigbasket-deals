@@ -1,10 +1,3 @@
-/**
- * BigBasket Deal Sniper (Unit-Price & Clean Card Edition)
- * - Added smart unit-price calculation (e.g. Rs.26/100g, Rs.84/kg, Rs.3.5/pc)
- * - Removed "Save Rs.X" and removed redundant Category name on cards
- * - Darkened and emphasized brand name
- * - 1 Category per fetch with gentle throttle and OOS badges
- */
 (function () {
     'use strict';
 
@@ -24,7 +17,7 @@
         dMin: 1200,
         dMax: 1800,
         hdrs: () => ({
-            "accept": "*/*",
+            "accept": "application/json",
             "content-type": "application/json",
             "x-channel": "BB-WEB",
             "x-entry-context": "bb-b2c",
@@ -61,6 +54,7 @@
 
     let prods = [];
     let isFetching = false;
+    let selectedBrands = new Set();
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -91,7 +85,6 @@
         if (!sp || sp <= 0) return '';
         const text = ((wStr || '') + ' ' + (name || '')).toLowerCase();
 
-        // 1. Grams (e.g. 500 g, 250 gm, 100 gms) -> Rs. X / 100g
         const gMatch = text.match(/([\d.]+)\s*(?:g|gm|gms|gram|grams)\b/i);
         if (gMatch) {
             const g = parseFloat(gMatch[1]);
@@ -102,7 +95,6 @@
             }
         }
 
-        // 2. Kilograms (e.g. 1 kg, 5 kg, 1.5 kg) -> Rs. X / kg
         const kgMatch = text.match(/([\d.]+)\s*(?:kg|kgs|kilo|kilogram)\b/i);
         if (kgMatch) {
             const kg = parseFloat(kgMatch[1]);
@@ -113,7 +105,6 @@
             }
         }
 
-        // 3. Milliliters (e.g. 500 ml, 750 ml) -> Rs. X / 100ml
         const mlMatch = text.match(/([\d.]+)\s*(?:ml|mls|millilitre|milliliter)\b/i);
         if (mlMatch) {
             const ml = parseFloat(mlMatch[1]);
@@ -124,7 +115,6 @@
             }
         }
 
-        // 4. Liters (e.g. 1 L, 2 L, 1.5 L) -> Rs. X / L
         const lMatch = text.match(/([\d.]+)\s*(?:l|ltr|litre|liter|litres)\b/i);
         if (lMatch) {
             const l = parseFloat(lMatch[1]);
@@ -135,7 +125,6 @@
             }
         }
 
-        // 5. Pieces / Units (e.g. 4 pcs, 80 wipes, 10 count) -> Rs. X / pc
         const pcMatch = text.match(/([\d.]+)\s*(?:pcs|pc|units|unit|count|sheets|wipes|diapers|tablets|capsules|caps)\b/i);
         if (pcMatch) {
             const pc = parseFloat(pcMatch[1]);
@@ -267,26 +256,36 @@
             .bb-btn-f{background:#2e7d32;color:#fff;}
             .bb-btn-m{background:#1976d2;color:#fff;display:none;box-shadow:0 4px 12px rgba(25,118,210,0.3);}
             #bb-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:#f8fafc;z-index:2147483646;display:none;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:#0f172a;}
-            .bb-m-top{background:#fff;padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:10px;position:sticky;top:0;z-index:10;}
+            .bb-m-top{background:#fff;padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:10px;position:sticky;top:0;z-index:100;}
             .bb-m-th{display:flex;justify-content:space-between;align-items:center;}
             .bb-m-th h2{font-size:18px;color:#1b5e20;margin:0;}
             .bb-m-cls{background:#e2e8f0;border:none;color:#334155;padding:6px 14px;border-radius:6px;font-weight:700;cursor:pointer;}
-            .bb-m-ctrl{display:grid;grid-template-columns:3fr 2fr;gap:12px;}
-            @media(max-width:600px){.bb-m-ctrl{grid-template-columns:1fr;}}
-            .bb-m-ctrl input,.bb-m-ctrl select{padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13.5px;outline:none;}
+            .bb-m-ctrl{display:grid;grid-template-columns:2.5fr 1.5fr 1.5fr;gap:10px;}
+            @media(max-width:768px){.bb-m-ctrl{grid-template-columns:1fr;}}
+            .bb-m-ctrl input,.bb-m-ctrl select{padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;outline:none;background:#fff;}
+            .bb-dd-wrap{position:relative;}
+            .bb-dd-btn{width:100%;padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff;color:#0f172a;text-align:left;cursor:pointer;display:flex;justify-content:space-between;align-items:center;}
+            .bb-dd-menu{position:absolute;top:calc(100% + 4px);left:0;width:100%;min-width:220px;max-height:280px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,0.15);display:none;flex-direction:column;z-index:200;padding:8px;}
+            .bb-dd-search{padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;margin-bottom:6px;outline:none;}
+            .bb-dd-acts{display:flex;justify-content:space-between;padding:4px 2px 6px;border-bottom:1px solid #f1f5f9;margin-bottom:4px;font-size:11px;}
+            .bb-dd-acts button{background:none;border:none;color:#2e7d32;font-weight:700;cursor:pointer;padding:0;}
+            .bb-dd-list{overflow-y:auto;max-height:180px;display:flex;flex-direction:column;gap:2px;}
+            .bb-dd-item{display:flex;align-items:center;gap:8px;padding:4px 6px;font-size:12px;color:#334155;cursor:pointer;border-radius:4px;}
+            .bb-dd-item:hover{background:#f8fafc;}
+            .bb-dd-item input{accent-color:#2e7d32;cursor:pointer;}
             .bb-m-body{flex:1;overflow-y:auto;padding:20px;}
             .bb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;}
-            .bb-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px;display:flex;flex-direction:column;position:relative;text-decoration:none;color:inherit;cursor:pointer;transition:transform 0.15s,box-shadow 0.15s,border-color 0.15s;}
-            .bb-card:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(0,0,0,0.08);border-color:#94a3b8;}
+            .bb-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px;display:flex;flex-direction:column;position:relative;text-decoration:none;color:inherit;cursor:pointer;transition:transform 0.12s ease-out,box-shadow 0.12s ease-out,border-color 0.12s ease-out;}
+            .bb-card:hover{transform:translateY(-1.5px);box-shadow:0 4px 12px rgba(0,0,0,0.06);border-color:#cbd5e1;}
             .bb-card.oos{opacity:0.65;border-style:dashed;}
-            .bb-bdg{position:absolute;top:10px;left:10px;background:#2e7d32;color:#fff;border-radius:8px;padding:5px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.05;text-align:center;min-width:40px;box-shadow:0 2px 6px rgba(46,125,50,0.3);}
+            .bb-bdg{position:absolute;top:10px;left:10px;background:#2e7d32;color:#fff;border-radius:8px;padding:5px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.05;text-align:center;min-width:40px;box-shadow:0 2px 6px rgba(46,125,50,0.3);z-index:10;}
             .bb-bdg-val{font-size:14px;font-weight:800;letter-spacing:-0.3px;}
             .bb-bdg-txt{font-size:9px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;}
-            .bb-unit{position:absolute;top:10px;right:10px;background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px;}
-            .bb-oos{position:absolute;top:44px;left:10px;background:#ef4444;color:#fff;font-size:10px;font-weight:800;padding:3px 6px;border-radius:4px;letter-spacing:0.4px;}
-            #bb-img{width:100%;height:130px;display:flex;align-items:center;justify-content:center;background:#fafafa;border-radius:8px;margin-bottom:8px;}
-            .bb-img img{max-width:100%;max-height:100%;object-fit:contain;}
-            .bb-card.oos .bb-img img{filter:grayscale(60%);}
+            .bb-unit{position:absolute;top:10px;right:10px;background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px;z-index:10;}
+            .bb-oos{position:absolute;top:44px;left:10px;background:#ef4444;color:#fff;font-size:10px;font-weight:800;padding:3px 6px;border-radius:4px;letter-spacing:0.4px;z-index:12;}
+            .bb-img-wrap{width:100%;height:130px;display:flex;align-items:center;justify-content:center;background:#fafafa;border-radius:8px;margin:0 auto 10px auto;position:relative;z-index:1;overflow:hidden;}
+            .bb-img-wrap img{max-width:100%;max-height:100%;object-fit:contain;margin:0 auto;display:block;}
+            .bb-card.oos .bb-img-wrap img{filter:grayscale(60%);}
             .bb-brand{font-size:12px;color:#0f172a;font-weight:800;text-transform:uppercase;margin-bottom:4px;letter-spacing:0.3px;}
             .bb-ttl{font-size:12.5px;font-weight:600;color:#334155;line-height:1.4;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:35px;}
             .bb-prc{display:flex;align-items:baseline;gap:8px;margin-top:auto;}
@@ -334,8 +333,22 @@
                     <button class="bb-m-cls" id="bb-m-cls">Close</button>
                 </div>
                 <div class="bb-m-ctrl">
-                    <input type="text" id="bb-q" placeholder="Search brand or product...">
+                    <input type="text" id="bb-q" placeholder="Search product name...">
                     <select id="bb-fc"><option value="all">All Categories</option></select>
+                    <div class="bb-dd-wrap" id="bb-brand-wrap">
+                        <button class="bb-dd-btn" id="bb-brand-btn" type="button">
+                            <span id="bb-brand-lbl">All Brands</span>
+                            <span>▾</span>
+                        </button>
+                        <div class="bb-dd-menu" id="bb-brand-menu">
+                            <input type="text" class="bb-dd-search" id="bb-brand-search" placeholder="Filter brands...">
+                            <div class="bb-dd-acts">
+                                <button id="bb-brand-all" type="button">Select All</button>
+                                <button id="bb-brand-clr" type="button">Clear</button>
+                            </div>
+                            <div class="bb-dd-list" id="bb-brand-list"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="bb-m-body">
@@ -445,6 +458,89 @@
 
         fBtn.onclick = runFetch;
 
+        const bBtn = document.getElementById('bb-brand-btn');
+        const bMenu = document.getElementById('bb-brand-menu');
+        const bList = document.getElementById('bb-brand-list');
+        const bSearch = document.getElementById('bb-brand-search');
+        const bLbl = document.getElementById('bb-brand-lbl');
+
+        bBtn.onclick = (e) => {
+            e.stopPropagation();
+            bMenu.style.display = bMenu.style.display === 'flex' ? 'none' : 'flex';
+        };
+
+        document.addEventListener('click', (e) => {
+            if (!document.getElementById('bb-brand-wrap')?.contains(e.target)) {
+                bMenu.style.display = 'none';
+            }
+        });
+
+        bSearch.oninput = () => {
+            const val = bSearch.value.toLowerCase().trim();
+            document.querySelectorAll('.bb-dd-item').forEach(item => {
+                const name = item.querySelector('span').innerText.toLowerCase();
+                item.style.display = !val || name.includes(val) ? 'flex' : 'none';
+            });
+        };
+
+        const updateBrandLabel = () => {
+            const allBrandsCount = [...new Set(prods.map(p => p.brand))].length;
+            if (selectedBrands.size === 0 || selectedBrands.size === allBrandsCount) {
+                bLbl.innerText = 'All Brands';
+            } else {
+                bLbl.innerText = `Brands (${selectedBrands.size})`;
+            }
+        };
+
+        const populateBrands = () => {
+            const brandCounts = {};
+            prods.forEach(p => {
+                brandCounts[p.brand] = (brandCounts[p.brand] || 0) + 1;
+            });
+
+            const sortedBrands = Object.keys(brandCounts).sort((a, b) => a.localeCompare(b));
+            selectedBrands = new Set(sortedBrands);
+
+            bList.innerHTML = sortedBrands.map(b => `
+                <label class="bb-dd-item">
+                    <input type="checkbox" value="${b}" class="bb-bcb" checked>
+                    <span>${b} (${brandCounts[b]})</span>
+                </label>
+            `).join('');
+
+            document.querySelectorAll('.bb-bcb').forEach(cb => {
+                cb.onchange = () => {
+                    if (cb.checked) {
+                        selectedBrands.add(cb.value);
+                    } else {
+                        selectedBrands.delete(cb.value);
+                    }
+                    updateBrandLabel();
+                    renderModal();
+                };
+            });
+
+            updateBrandLabel();
+        };
+
+        document.getElementById('bb-brand-all').onclick = () => {
+            document.querySelectorAll('.bb-bcb').forEach(cb => {
+                cb.checked = true;
+                selectedBrands.add(cb.value);
+            });
+            updateBrandLabel();
+            renderModal();
+        };
+
+        document.getElementById('bb-brand-clr').onclick = () => {
+            document.querySelectorAll('.bb-bcb').forEach(cb => {
+                cb.checked = false;
+                selectedBrands.delete(cb.value);
+            });
+            updateBrandLabel();
+            renderModal();
+        };
+
         const openModal = () => {
             if (!prods.length) return alert('No products fetched yet!');
             const fc = document.getElementById('bb-fc');
@@ -453,6 +549,7 @@
                 fc.innerHTML += `<option value="${c}">${c}</option>`;
             });
 
+            populateBrands();
             m.style.display = 'flex';
             renderModal();
         };
@@ -464,7 +561,8 @@
             let filtered = prods.filter(p => {
                 const matchQ = !q || p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q);
                 const matchC = c === 'all' || p.cat === c;
-                return matchQ && matchC;
+                const matchB = selectedBrands.size === 0 || selectedBrands.has(p.brand);
+                return matchQ && matchC && matchB;
             });
 
             filtered.sort((a, b) => b.disc - a.disc);
@@ -478,7 +576,7 @@
                     </div>
                     ${p.unitPrice ? `<span class="bb-unit">${p.unitPrice}</span>` : ''}
                     ${p.isOutOfStock ? '<span class="bb-oos">OUT OF STOCK</span>' : ''}
-                    <div class="bb-img"><img src="${p.img}" loading="lazy" onerror="this.src='https://www.bigbasket.com/static/images/default.jpg'"></div>
+                    <div class="bb-img-wrap"><img src="${p.img}" loading="lazy" onerror="this.src='https://www.bigbasket.com/static/images/default.jpg'"></div>
                     <div class="bb-brand">${p.brand}</div>
                     <div class="bb-ttl" title="${p.name}">${p.name}</div>
                     <div class="bb-prc"><span class="bb-sp">Rs.${p.sp}</span><span class="bb-mrp">Rs.${p.mrp}</span></div>
