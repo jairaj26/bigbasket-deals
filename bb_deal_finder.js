@@ -1,10 +1,9 @@
 /**
- * BigBasket Deal Sniper (1-Category Deep Scan & OOS Badge Edition)
- * - 1 Category per fetch (Ultra-reliable, zero 429 errors)
- * - Deep scan down to >= 35% OFF (P1, P2, and beyond)
- * - Respectful 1200ms-1800ms human throttle
- * - Prominent Out-of-Stock badge & larger discount % typography
- * - Clean 2-item top bar (Search + Category Filter)
+ * BigBasket Deal Sniper (Unit-Price & Clean Card Edition)
+ * - Added smart unit-price calculation (e.g. Rs.26/100g, Rs.84/kg, Rs.3.5/pc)
+ * - Removed "Save Rs.X" and removed redundant Category name on cards
+ * - Darkened and emphasized brand name
+ * - 1 Category per fetch with gentle throttle and OOS badges
  */
 (function () {
     'use strict';
@@ -88,6 +87,68 @@
         return d.product_info?.products || (Array.isArray(d.products) ? d.products : []);
     };
 
+    const calcUnitPrice = (sp, wStr, name) => {
+        if (!sp || sp <= 0) return '';
+        const text = ((wStr || '') + ' ' + (name || '')).toLowerCase();
+
+        // 1. Grams (e.g. 500 g, 250 gm, 100 gms) -> Rs. X / 100g
+        const gMatch = text.match(/([\d.]+)\s*(?:g|gm|gms|gram|grams)\b/i);
+        if (gMatch) {
+            const g = parseFloat(gMatch[1]);
+            if (g > 0) {
+                const p100 = (sp / g) * 100;
+                const formatted = p100 >= 10 ? Math.round(p100) : p100.toFixed(1);
+                return `Rs.${formatted}/100g`;
+            }
+        }
+
+        // 2. Kilograms (e.g. 1 kg, 5 kg, 1.5 kg) -> Rs. X / kg
+        const kgMatch = text.match(/([\d.]+)\s*(?:kg|kgs|kilo|kilogram)\b/i);
+        if (kgMatch) {
+            const kg = parseFloat(kgMatch[1]);
+            if (kg > 0) {
+                const pkg = sp / kg;
+                const formatted = pkg >= 10 ? Math.round(pkg) : pkg.toFixed(1);
+                return `Rs.${formatted}/kg`;
+            }
+        }
+
+        // 3. Milliliters (e.g. 500 ml, 750 ml) -> Rs. X / 100ml
+        const mlMatch = text.match(/([\d.]+)\s*(?:ml|mls|millilitre|milliliter)\b/i);
+        if (mlMatch) {
+            const ml = parseFloat(mlMatch[1]);
+            if (ml > 0) {
+                const p100 = (sp / ml) * 100;
+                const formatted = p100 >= 10 ? Math.round(p100) : p100.toFixed(1);
+                return `Rs.${formatted}/100ml`;
+            }
+        }
+
+        // 4. Liters (e.g. 1 L, 2 L, 1.5 L) -> Rs. X / L
+        const lMatch = text.match(/([\d.]+)\s*(?:l|ltr|litre|liter|litres)\b/i);
+        if (lMatch) {
+            const l = parseFloat(lMatch[1]);
+            if (l > 0) {
+                const pl = sp / l;
+                const formatted = pl >= 10 ? Math.round(pl) : pl.toFixed(1);
+                return `Rs.${formatted}/L`;
+            }
+        }
+
+        // 5. Pieces / Units (e.g. 4 pcs, 80 wipes, 10 count) -> Rs. X / pc
+        const pcMatch = text.match(/([\d.]+)\s*(?:pcs|pc|units|unit|count|sheets|wipes|diapers|tablets|capsules|caps)\b/i);
+        if (pcMatch) {
+            const pc = parseFloat(pcMatch[1]);
+            if (pc > 1) {
+                const ppc = sp / pc;
+                const formatted = ppc >= 10 ? Math.round(ppc) : ppc.toFixed(1);
+                return `Rs.${formatted}/pc`;
+            }
+        }
+
+        return '';
+    };
+
     const parseProduct = (p, catName) => {
         if (!p) return null;
         const mrp = parseFloat(p.pricing?.discount?.mrp || p.pricing?.mrp || p.mrp || 0);
@@ -109,14 +170,18 @@
 
         if (mrp > 0 || sp > 0) {
             const url = p.absolute_url ? (p.absolute_url.startsWith('http') ? p.absolute_url : 'https://www.bigbasket.com' + p.absolute_url) : `https://www.bigbasket.com/pd/${p.id || ''}`;
+            const weightStr = p.w || p.pack_desc || '';
+            const unitPrice = calcUnitPrice(sp, weightStr, p.desc || p.p_desc || p.name || '');
+
             return {
                 id: String(p.id || Math.random().toString(36).substring(7)),
-                name: (p.desc || p.p_desc || p.name || 'Product') + (p.w ? ` (${p.w})` : ''),
+                name: (p.desc || p.p_desc || p.name || 'Product') + (weightStr ? ` (${weightStr})` : ''),
                 brand: p.brand?.name || p.p_brand || 'BigBasket',
                 mrp: parseFloat(mrp.toFixed(2)),
                 sp: parseFloat(sp.toFixed(2)),
                 sav: parseFloat(sav.toFixed(2)),
                 disc: parseFloat(disc.toFixed(1)),
+                unitPrice,
                 isOutOfStock,
                 img: p.images?.[0]?.s || p.images?.[0]?.m || 'https://www.bigbasket.com/static/images/default.jpg',
                 cat: catName,
@@ -217,13 +282,13 @@
             .bb-bdg{position:absolute;top:10px;left:10px;background:#2e7d32;color:#fff;border-radius:8px;padding:5px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.05;text-align:center;min-width:40px;box-shadow:0 2px 6px rgba(46,125,50,0.3);}
             .bb-bdg-val{font-size:14px;font-weight:800;letter-spacing:-0.3px;}
             .bb-bdg-txt{font-size:9px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;}
-            .bb-sav{position:absolute;top:10px;right:10px;background:#e8f5e9;color:#1b5e20;font-size:11.5px;font-weight:700;padding:3px 7px;border-radius:6px;}
+            .bb-unit{position:absolute;top:10px;right:10px;background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;font-size:11px;font-weight:700;padding:3px 7px;border-radius:6px;}
             .bb-oos{position:absolute;top:44px;left:10px;background:#ef4444;color:#fff;font-size:10px;font-weight:800;padding:3px 6px;border-radius:4px;letter-spacing:0.4px;}
             #bb-img{width:100%;height:130px;display:flex;align-items:center;justify-content:center;background:#fafafa;border-radius:8px;margin-bottom:8px;}
             .bb-img img{max-width:100%;max-height:100%;object-fit:contain;}
             .bb-card.oos .bb-img img{filter:grayscale(60%);}
-            .bb-meta{display:flex;justify-content:space-between;font-size:10.5px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:4px;}
-            .bb-ttl{font-size:12.5px;font-weight:600;color:#0f172a;line-height:1.4;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:35px;}
+            .bb-brand{font-size:12px;color:#0f172a;font-weight:800;text-transform:uppercase;margin-bottom:4px;letter-spacing:0.3px;}
+            .bb-ttl{font-size:12.5px;font-weight:600;color:#334155;line-height:1.4;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:35px;}
             .bb-prc{display:flex;align-items:baseline;gap:8px;margin-top:auto;}
             .bb-sp{font-size:16px;font-weight:800;color:#0f172a;}
             #bb-mrp{font-size:12px;color:#94a3b8;text-decoration:line-through;}
@@ -411,10 +476,10 @@
                         <span class="bb-bdg-val">${p.disc}%</span>
                         <span class="bb-bdg-txt">OFF</span>
                     </div>
+                    ${p.unitPrice ? `<span class="bb-unit">${p.unitPrice}</span>` : ''}
                     ${p.isOutOfStock ? '<span class="bb-oos">OUT OF STOCK</span>' : ''}
-                    <span class="bb-sav">Save Rs.${p.sav}</span>
                     <div class="bb-img"><img src="${p.img}" loading="lazy" onerror="this.src='https://www.bigbasket.com/static/images/default.jpg'"></div>
-                    <div class="bb-meta"><span>${p.brand}</span><span>${p.cat}</span></div>
+                    <div class="bb-brand">${p.brand}</div>
                     <div class="bb-ttl" title="${p.name}">${p.name}</div>
                     <div class="bb-prc"><span class="bb-sp">Rs.${p.sp}</span><span class="bb-mrp">Rs.${p.mrp}</span></div>
                 </a>
