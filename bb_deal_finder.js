@@ -12,10 +12,9 @@
 
     const CFG = {
         maxCats: 1,
-        minD: 35,
-        maxP: 6,
-        dMin: 1200,
-        dMax: 1800,
+        pagesPerCat: 2,
+        dMin: 800,
+        dMax: 1100,
         hdrs: () => ({
             "accept": "application/json",
             "content-type": "application/json",
@@ -54,6 +53,7 @@
 
     let prods = [];
     let isFetching = false;
+    let abortScan = false;
     let selectedBrands = new Set();
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -63,7 +63,7 @@
             const res = await fetch(url, { headers: CFG.hdrs() });
             if (res.ok) return await res.json();
             if (res.status === 429) {
-                await sleep(2000);
+                await sleep(2500);
                 const retryRes = await fetch(url, { headers: CFG.hdrs() });
                 if (retryRes.ok) return await retryRes.json();
             }
@@ -200,34 +200,19 @@
         let res = [];
         const makeUrl = (page) => `https://www.bigbasket.com/listing-svc/v2/products?type=pc&slug=${cat.slug}&page=${page}&sort=dphtl`;
 
-        if (onProg) onProg(`Scanning ${cat.name} (Page 1)...`);
+        if (onProg) onProg(`Scanning ${cat.name} (P1)...`);
         let data1 = await fetchJSON(makeUrl(1));
         let p1Items = handlePage(data1, cat.name);
         res.push(...p1Items);
 
+        if (abortScan) return res;
+
         await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
 
-        if (onProg) onProg(`Scanning ${cat.name} (Page 2)...`);
+        if (onProg) onProg(`Scanning ${cat.name} (P2)...`);
         let data2 = await fetchJSON(makeUrl(2));
         let p2Items = handlePage(data2, cat.name);
         res.push(...p2Items);
-
-        let page = 3;
-        let more = p2Items.length > 0 && p2Items[p2Items.length - 1]?.disc >= CFG.minD;
-
-        while (more && page <= CFG.maxP) {
-            await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
-            if (onProg) onProg(`Scanning ${cat.name} (Page ${page})...`);
-            const data = await fetchJSON(makeUrl(page));
-            const items = handlePage(data, cat.name);
-            if (items.length) {
-                res.push(...items);
-                more = items[items.length - 1]?.disc >= CFG.minD;
-                page++;
-            } else {
-                more = false;
-            }
-        }
 
         return res;
     };
@@ -239,22 +224,28 @@
         s.textContent = `
             #bb-wrap{position:fixed;bottom:20px;right:20px;z-index:2147483640;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;}
             #bb-fab{background:#2e7d32;color:#fff;border:none;padding:12px 18px;border-radius:50px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(46,125,50,0.4);display:flex;align-items:center;gap:6px;}
-            #bb-pop{position:absolute;bottom:60px;right:0;width:320px;max-width:calc(100vw - 32px);max-height:80vh;background:#fff;border-radius:16px;box-shadow:0 16px 40px rgba(0,0,0,0.2),0 0 0 1px rgba(0,0,0,0.08);display:flex;flex-direction:column;overflow:hidden;}
+            #bb-pop{position:absolute;bottom:60px;right:0;width:330px;max-width:calc(100vw - 32px);max-height:85vh;background:#fff;border-radius:16px;box-shadow:0 16px 40px rgba(0,0,0,0.2),0 0 0 1px rgba(0,0,0,0.08);display:flex;flex-direction:column;overflow:hidden;}
             @media(max-width:480px){#bb-pop{position:fixed;bottom:74px;right:16px;left:16px;width:auto;}}
             .bb-hd{background:#2e7d32;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:700;}
             .bb-hd button{background:rgba(255,255,255,0.2);border:none;color:#fff;width:24px;height:24px;border-radius:50%;cursor:pointer;}
             .bb-tb{display:flex;justify-content:space-between;padding:8px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:600;color:#475569;}
             .bb-tb button{background:none;border:none;color:#2e7d32;font-weight:700;cursor:pointer;font-size:11.5px;}
-            .bb-list{padding:8px 14px;overflow-y:auto;max-height:220px;display:flex;flex-direction:column;gap:3px;}
+            .bb-list{padding:8px 14px;overflow-y:auto;max-height:210px;display:flex;flex-direction:column;gap:3px;}
             .bb-item{display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px;color:#334155;cursor:pointer;}
             .bb-item input{accent-color:#2e7d32;width:15px;height:15px;}
             .bb-item.disabled{opacity:0.35;cursor:not-allowed;}
-            .bb-st{padding:8px 14px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11.5px;color:#475569;font-weight:600;}
+            .bb-st-wrap{padding:10px 14px;background:#f8fafc;border-top:1px solid #e2e8f0;display:flex;flex-direction:column;gap:6px;}
+            .bb-st{font-size:11.5px;color:#475569;font-weight:600;}
+            .bb-pbar-bg{width:100%;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;display:none;}
+            .bb-pbar-fill{height:100%;width:0%;background:#2e7d32;transition:width 0.2s ease;}
             .bb-acts{padding:12px 14px;background:#fff;border-top:1px solid #e2e8f0;display:flex;flex-direction:column;gap:8px;}
-            .bb-btn{width:100%;padding:10px 14px;border:none;border-radius:8px;font-size:13.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+            .bb-row{display:flex;gap:8px;}
+            .bb-btn{flex:1;padding:10px 12px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;}
             .bb-btn:disabled{opacity:0.45;cursor:not-allowed;}
             .bb-btn-f{background:#2e7d32;color:#fff;}
-            .bb-btn-m{background:#1976d2;color:#fff;display:none;box-shadow:0 4px 12px rgba(25,118,210,0.3);}
+            .bb-btn-a{background:#1e293b;color:#fff;}
+            .bb-btn-s{background:#dc2626;color:#fff;display:none;width:100%;}
+            .bb-btn-m{background:#1976d2;color:#fff;display:none;width:100%;box-shadow:0 4px 12px rgba(25,118,210,0.3);}
             #bb-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:#f8fafc;z-index:2147483646;display:none;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:#0f172a;}
             .bb-m-top{background:#fff;padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:10px;position:sticky;top:0;z-index:100;}
             .bb-m-th{display:flex;justify-content:space-between;align-items:center;}
@@ -308,15 +299,24 @@
                     <button id="bb-cls">X</button>
                 </div>
                 <div class="bb-tb">
-                    <span id="bb-lbl">Pick 1 Category</span>
+                    <span id="bb-lbl">Pick 1 Category or Fetch All</span>
                     <div>
                         <button id="bb-none">Clear</button>
                     </div>
                 </div>
                 <div class="bb-list" id="bb-list"></div>
-                <div class="bb-st" id="bb-st">Select 1 category to scan (>=35% OFF)</div>
+                <div class="bb-st-wrap">
+                    <div class="bb-st" id="bb-st">Select 1 category or Fetch All (2 pages each)</div>
+                    <div class="bb-pbar-bg" id="bb-pbar-bg">
+                        <div class="bb-pbar-fill" id="bb-pbar-fill"></div>
+                    </div>
+                </div>
                 <div class="bb-acts">
-                    <button id="bb-f" class="bb-btn bb-btn-f" disabled>Fetch Deals</button>
+                    <div class="bb-row" id="bb-btn-row">
+                        <button id="bb-f" class="bb-btn bb-btn-f" disabled>Fetch Selected</button>
+                        <button id="bb-a" class="bb-btn bb-btn-a">Fetch All (20)</button>
+                    </div>
+                    <button id="bb-s" class="bb-btn bb-btn-s">Stop & View Loaded Deals</button>
                     <button id="bb-m-btn" class="bb-btn bb-btn-m">View Deals Grid ></button>
                 </div>
             </div>
@@ -368,8 +368,13 @@
 
         const pop = document.getElementById('bb-pop');
         const fBtn = document.getElementById('bb-f');
+        const aBtn = document.getElementById('bb-a');
+        const sBtn = document.getElementById('bb-s');
         const mBtn = document.getElementById('bb-m-btn');
         const lbl = document.getElementById('bb-lbl');
+        const pbarBg = document.getElementById('bb-pbar-bg');
+        const pbarFill = document.getElementById('bb-pbar-fill');
+        const btnRow = document.getElementById('bb-btn-row');
 
         document.getElementById('bb-fab').onclick = () => {
             pop.style.display = pop.style.display === 'none' ? 'flex' : 'none';
@@ -380,7 +385,7 @@
             const checked = document.querySelectorAll('.bb-cb:checked');
             const cnt = checked.length;
 
-            lbl.innerText = cnt > 0 ? `${cnt} Selected` : `Pick 1 Category`;
+            lbl.innerText = cnt > 0 ? `${cnt} Selected` : `Pick 1 Category or Fetch All`;
 
             document.querySelectorAll('.bb-cb').forEach(cb => {
                 if (!cb.checked) {
@@ -394,7 +399,7 @@
 
             if (!isFetching) {
                 fBtn.disabled = cnt === 0;
-                fBtn.innerText = cnt > 0 ? `Fetch (${checked[0].parentElement.querySelector('span').innerText})` : 'Fetch Deals';
+                fBtn.innerText = cnt > 0 ? `Fetch (${checked[0].parentElement.querySelector('span').innerText})` : 'Fetch Selected';
             }
         };
 
@@ -406,31 +411,58 @@
             updateState();
         };
 
-        const setBusy = (busy, msg = '') => {
+        const setBusy = (busy, msg = '', percent = 0) => {
             isFetching = busy;
             const statusEl = document.getElementById('bb-st');
             if (statusEl && msg) statusEl.innerText = msg;
-            fBtn.disabled = busy || document.querySelectorAll('.bb-cb:checked').length === 0;
-            mBtn.disabled = busy;
+
+            if (busy) {
+                btnRow.style.display = 'none';
+                sBtn.style.display = 'block';
+                pbarBg.style.display = 'block';
+                pbarFill.style.width = `${percent}%`;
+                mBtn.style.display = 'none';
+            } else {
+                btnRow.style.display = 'flex';
+                sBtn.style.display = 'none';
+                pbarBg.style.display = 'none';
+                fBtn.disabled = document.querySelectorAll('.bb-cb:checked').length === 0;
+                aBtn.disabled = false;
+            }
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.disabled = busy; });
         };
 
-        const runFetch = async () => {
-            if (isFetching) return;
-            const slugs = Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => cb.value).slice(0, CFG.maxCats);
-            if (!slugs.length) return;
+        sBtn.onclick = () => {
+            abortScan = true;
+            sBtn.innerText = 'Stopping scan...';
+        };
 
-            setBusy(true, `Starting paced scan (>=35% OFF)...`);
+        const runFetch = async (fetchAll = false) => {
+            if (isFetching) return;
+            abortScan = false;
+            sBtn.innerText = 'Stop & View Loaded Deals';
+
+            const targets = fetchAll ? CATS : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => CATS.find(x => x.slug === cb.value)).filter(Boolean);
+            if (!targets.length) return;
+
+            setBusy(true, `Starting scan for ${targets.length} categories...`, 0);
             prods = [];
 
-            for (let i = 0; i < slugs.length; i++) {
-                const c = CATS.find(x => x.slug === slugs[i]);
-                if (c) {
-                    const items = await scanCategory(c, (m) => setBusy(true, m));
-                    if (items.length) {
-                        prods.push(...items);
-                        setBusy(true, `${c.name}: +${items.length} items found`);
-                    }
+            for (let i = 0; i < targets.length; i++) {
+                if (abortScan) break;
+                const c = targets[i];
+                const pct = Math.round((i / targets.length) * 100);
+
+                const items = await scanCategory(c, (m) => setBusy(true, `[${i + 1}/${targets.length}] ${m}`, pct));
+                if (items.length) {
+                    prods.push(...items);
+                }
+
+                const currPct = Math.round(((i + 1) / targets.length) * 100);
+                setBusy(true, `[${i + 1}/${targets.length}] ${c.name} done (${prods.length} total deals)`, currPct);
+
+                if (i < targets.length - 1 && !abortScan) {
+                    await sleep(CFG.dMin);
                 }
             }
 
@@ -444,19 +476,20 @@
             updateState();
 
             const catsCount = new Set(prods.map(p => p.cat)).size;
-            setBusy(false, `Done! Found ${prods.length} items (>=35% OFF).`);
+            setBusy(false, `Done! Found ${prods.length} items across ${catsCount} categories.`);
 
             fBtn.disabled = true;
-            fBtn.innerText = 'Fetch Deals';
+            fBtn.innerText = 'Fetch Selected';
 
             if (prods.length > 0) {
-                mBtn.style.display = 'flex';
+                mBtn.style.display = 'block';
                 mBtn.innerText = `View ${prods.length} Deals Grid >`;
                 openModal();
             }
         };
 
-        fBtn.onclick = runFetch;
+        fBtn.onclick = () => runFetch(false);
+        aBtn.onclick = () => runFetch(true);
 
         const bBtn = document.getElementById('bb-brand-btn');
         const bMenu = document.getElementById('bb-brand-menu');
