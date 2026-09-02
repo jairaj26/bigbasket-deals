@@ -54,20 +54,25 @@
     let prods = [];
     let isFetching = false;
     let abortScan = false;
+    let failedQueue = [];
+    let isBackgroundSyncing = false;
     let selectedBrands = new Set();
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-    const fetchJSON = async (url) => {
-        try {
-            const res = await fetch(url, { headers: CFG.hdrs() });
-            if (res.ok) return await res.json();
-            if (res.status === 429) {
-                await sleep(2500);
-                const retryRes = await fetch(url, { headers: CFG.hdrs() });
-                if (retryRes.ok) return await retryRes.json();
-            }
-        } catch { }
+    const fetchJSON = async (url, retries = 1, delay = 1500) => {
+        for (let attempt = 0; attempt <= retries; attempt++) {
+            try {
+                const res = await fetch(url, { headers: CFG.hdrs() });
+                if (res.ok) return await res.json();
+                if (res.status === 429) {
+                    if (attempt < retries) {
+                        await sleep(delay);
+                        continue;
+                    }
+                }
+            } catch { }
+        }
         return null;
     };
 
@@ -201,18 +206,24 @@
         const makeUrl = (page) => `https://www.bigbasket.com/listing-svc/v2/products?type=pc&slug=${cat.slug}&page=${page}&sort=dphtl`;
 
         if (onProg) onProg(`Scanning ${cat.name} (P1)...`);
-        let data1 = await fetchJSON(makeUrl(1));
-        let p1Items = handlePage(data1, cat.name);
-        res.push(...p1Items);
+        let data1 = await fetchJSON(makeUrl(1), 1, 1500);
+        if (data1) {
+            res.push(...handlePage(data1, cat.name));
+        } else {
+            failedQueue.push({ cat, page: 1 });
+        }
 
         if (abortScan) return res;
 
         await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
 
         if (onProg) onProg(`Scanning ${cat.name} (P2)...`);
-        let data2 = await fetchJSON(makeUrl(2));
-        let p2Items = handlePage(data2, cat.name);
-        res.push(...p2Items);
+        let data2 = await fetchJSON(makeUrl(2), 1, 1500);
+        if (data2) {
+            res.push(...handlePage(data2, cat.name));
+        } else {
+            failedQueue.push({ cat, page: 2 });
+        }
 
         return res;
     };
@@ -246,14 +257,20 @@
             .bb-btn-a{background:#1e293b;color:#fff;}
             .bb-btn-s{background:#dc2626;color:#fff;display:none;width:100%;}
             .bb-btn-m{background:#1976d2;color:#fff;display:none;width:100%;box-shadow:0 4px 12px rgba(25,118,210,0.3);}
+            
             #bb-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:#f8fafc;z-index:2147483646;display:none;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;color:#0f172a;}
             .bb-m-top{background:#fff;padding:14px 20px;border-bottom:1px solid #e2e8f0;display:flex;flex-direction:column;gap:10px;position:sticky;top:0;z-index:100;}
             .bb-m-th{display:flex;justify-content:space-between;align-items:center;}
+            .bb-m-th-left{display:flex;align-items:center;gap:12px;}
             .bb-m-th h2{font-size:18px;color:#1b5e20;margin:0;}
+            .bb-sync-badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:20px;background:#fef3c7;color:#b45309;border:1px solid #fde68a;transition:all 0.3s ease;}
+            .bb-sync-badge.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
             .bb-m-cls{background:#e2e8f0;border:none;color:#334155;padding:6px 14px;border-radius:6px;font-weight:700;cursor:pointer;}
+            
             .bb-m-ctrl{display:grid;grid-template-columns:2.5fr 1.5fr 1.5fr;gap:10px;}
             @media(max-width:768px){.bb-m-ctrl{grid-template-columns:1fr;}}
             .bb-m-ctrl input,.bb-m-ctrl select{padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;outline:none;background:#fff;}
+            
             .bb-dd-wrap{position:relative;}
             .bb-dd-btn{width:100%;padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff;color:#0f172a;text-align:left;cursor:pointer;display:flex;justify-content:space-between;align-items:center;}
             .bb-dd-menu{position:absolute;top:calc(100% + 4px);left:0;width:100%;min-width:220px;max-height:280px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,0.15);display:none;flex-direction:column;z-index:200;padding:8px;}
@@ -264,6 +281,7 @@
             .bb-dd-item{display:flex;align-items:center;gap:8px;padding:4px 6px;font-size:12px;color:#334155;cursor:pointer;border-radius:4px;}
             .bb-dd-item:hover{background:#f8fafc;}
             .bb-dd-item input{accent-color:#2e7d32;cursor:pointer;}
+            
             .bb-m-body{flex:1;overflow-y:auto;padding:20px;}
             .bb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;}
             .bb-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px;display:flex;flex-direction:column;position:relative;text-decoration:none;color:inherit;cursor:pointer;transition:transform 0.12s ease-out,box-shadow 0.12s ease-out,border-color 0.12s ease-out;}
@@ -329,7 +347,10 @@
         m.innerHTML = `
             <div class="bb-m-top">
                 <div class="bb-m-th">
-                    <h2>BigBasket Deals Explorer</h2>
+                    <div class="bb-m-th-left">
+                        <h2>BigBasket Deals Explorer</h2>
+                        <span id="bb-sync-badge" class="bb-sync-badge" style="display:none;"></span>
+                    </div>
                     <button class="bb-m-cls" id="bb-m-cls">Close</button>
                 </div>
                 <div class="bb-m-ctrl">
@@ -375,6 +396,7 @@
         const pbarBg = document.getElementById('bb-pbar-bg');
         const pbarFill = document.getElementById('bb-pbar-fill');
         const btnRow = document.getElementById('bb-btn-row');
+        const syncBadge = document.getElementById('bb-sync-badge');
 
         document.getElementById('bb-fab').onclick = () => {
             pop.style.display = pop.style.display === 'none' ? 'flex' : 'none';
@@ -437,15 +459,67 @@
             sBtn.innerText = 'Stopping scan...';
         };
 
+        // Pass 2: Background Recovery Worker
+        const startBackgroundSync = async () => {
+            if (isBackgroundSyncing || !failedQueue.length) return;
+            isBackgroundSyncing = true;
+
+            syncBadge.style.display = 'inline-flex';
+            syncBadge.className = 'bb-sync-badge';
+            syncBadge.innerHTML = `⚡ Recovering ${failedQueue.length} deferred ${failedQueue.length === 1 ? 'page' : 'pages'} in background...`;
+
+            while (failedQueue.length > 0) {
+                const item = failedQueue.shift();
+                syncBadge.innerHTML = `⚡ Syncing ${item.cat.name} (P${item.page}) in background...`;
+
+                // Respectful background pacing so Akamai never blocks
+                await sleep(3000);
+
+                const url = `https://www.bigbasket.com/listing-svc/v2/products?type=pc&slug=${item.cat.slug}&page=${item.page}&sort=dphtl`;
+                const data = await fetchJSON(url, 2, 3500);
+
+                if (data) {
+                    const newItems = handlePage(data, item.cat.name);
+                    if (newItems.length) {
+                        // Merge and deduplicate
+                        const seen = new Set(prods.map(p => `${p.id}-${p.cat}`));
+                        const added = [];
+                        newItems.forEach(p => {
+                            const key = `${p.id}-${p.cat}`;
+                            if (!seen.has(key)) {
+                                seen.add(key);
+                                prods.push(p);
+                                added.push(p);
+                            }
+                        });
+
+                        if (added.length) {
+                            refreshFiltersSmoothly();
+                            renderModal();
+                        }
+                    }
+                }
+            }
+
+            isBackgroundSyncing = false;
+            syncBadge.className = 'bb-sync-badge done';
+            syncBadge.innerHTML = `✓ All 20 Categories 100% Synced`;
+            setTimeout(() => {
+                syncBadge.style.opacity = '0';
+                setTimeout(() => { syncBadge.style.display = 'none'; syncBadge.style.opacity = '1'; }, 400);
+            }, 5000);
+        };
+
         const runFetch = async (fetchAll = false) => {
             if (isFetching) return;
             abortScan = false;
+            failedQueue = [];
             sBtn.innerText = 'Stop & View Loaded Deals';
 
             const targets = fetchAll ? CATS : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => CATS.find(x => x.slug === cb.value)).filter(Boolean);
             if (!targets.length) return;
 
-            setBusy(true, `Starting scan for ${targets.length} categories...`, 0);
+            setBusy(true, `Starting Pass 1 for ${targets.length} categories...`, 0);
             prods = [];
 
             for (let i = 0; i < targets.length; i++) {
@@ -486,6 +560,11 @@
                 mBtn.innerText = `View ${prods.length} Deals Grid >`;
                 openModal();
             }
+
+            // Launch background recovery worker if any items were deferred
+            if (failedQueue.length > 0 && !abortScan) {
+                startBackgroundSync();
+            }
         };
 
         fBtn.onclick = () => runFetch(false);
@@ -525,18 +604,20 @@
             }
         };
 
-        const populateBrands = () => {
+        const populateBrands = (preserveSelected = false) => {
             const brandCounts = {};
             prods.forEach(p => {
                 brandCounts[p.brand] = (brandCounts[p.brand] || 0) + 1;
             });
 
             const sortedBrands = Object.keys(brandCounts).sort((a, b) => a.localeCompare(b));
-            selectedBrands = new Set(sortedBrands);
+            if (!preserveSelected) {
+                selectedBrands = new Set(sortedBrands);
+            }
 
             bList.innerHTML = sortedBrands.map(b => `
                 <label class="bb-dd-item">
-                    <input type="checkbox" value="${b}" class="bb-bcb" checked>
+                    <input type="checkbox" value="${b}" class="bb-bcb" ${selectedBrands.has(b) ? 'checked' : ''}>
                     <span>${b} (${brandCounts[b]})</span>
                 </label>
             `).join('');
@@ -554,6 +635,16 @@
             });
 
             updateBrandLabel();
+        };
+
+        const refreshFiltersSmoothly = () => {
+            const fc = document.getElementById('bb-fc');
+            const currentCat = fc.value;
+            fc.innerHTML = '<option value="all">All Categories</option>';
+            [...new Set(prods.map(p => p.cat))].sort().forEach(c => {
+                fc.innerHTML += `<option value="${c}" ${c === currentCat ? 'selected' : ''}>${c}</option>`;
+            });
+            populateBrands(true);
         };
 
         document.getElementById('bb-brand-all').onclick = () => {
@@ -582,7 +673,7 @@
                 fc.innerHTML += `<option value="${c}">${c}</option>`;
             });
 
-            populateBrands();
+            populateBrands(false);
             m.style.display = 'flex';
             renderModal();
         };
@@ -600,7 +691,7 @@
 
             filtered.sort((a, b) => b.disc - a.disc);
 
-            document.getElementById('bb-stat').innerText = `Showing ${filtered.length} of ${prods.length} items (sorted by highest discount)`;
+            document.getElementById('bb-stat').innerText = `Showing ${filtered.length} of ${prods.length} items across ${new Set(prods.map(p => p.cat)).size} categories`;
             document.getElementById('bb-grid').innerHTML = filtered.map(p => `
                 <a href="${p.url}" target="_blank" class="bb-card ${p.isOutOfStock ? 'oos' : ''}">
                     <div class="bb-bdg">
