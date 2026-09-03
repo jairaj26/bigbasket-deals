@@ -267,8 +267,9 @@
             .bb-sync-badge.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
             .bb-m-cls{background:#e2e8f0;border:none;color:#334155;padding:6px 14px;border-radius:6px;font-weight:700;cursor:pointer;}
             
-            .bb-m-ctrl{display:grid;grid-template-columns:2.5fr 1.5fr 1.5fr;gap:10px;}
-            @media(max-width:768px){.bb-m-ctrl{grid-template-columns:1fr;}}
+            .bb-m-ctrl{display:grid;grid-template-columns:2.5fr 1.3fr 1.3fr auto;gap:10px;align-items:center;}
+            @media(max-width:850px){.bb-m-ctrl{grid-template-columns:1fr 1fr;}}
+            @media(max-width:550px){.bb-m-ctrl{grid-template-columns:1fr;}}
             .bb-m-ctrl input,.bb-m-ctrl select{padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;outline:none;background:#fff;}
             
             .bb-dd-wrap{position:relative;}
@@ -281,6 +282,11 @@
             .bb-dd-item{display:flex;align-items:center;gap:8px;padding:4px 6px;font-size:12px;color:#334155;cursor:pointer;border-radius:4px;}
             .bb-dd-item:hover{background:#f8fafc;}
             .bb-dd-item input{accent-color:#2e7d32;cursor:pointer;}
+            
+            /* Out of stock toggle button */
+            .bb-oos-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#475569;cursor:pointer;padding:8px 12px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;user-select:none;white-space:nowrap;transition:background 0.15s,border-color 0.15s;}
+            .bb-oos-toggle:hover{background:#f8fafc;border-color:#94a3b8;}
+            .bb-oos-toggle input{accent-color:#2e7d32;cursor:pointer;width:15px;height:15px;}
             
             .bb-m-body{flex:1;overflow-y:auto;padding:20px;}
             .bb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;}
@@ -370,6 +376,10 @@
                             <div class="bb-dd-list" id="bb-brand-list"></div>
                         </div>
                     </div>
+                    <label class="bb-oos-toggle">
+                        <input type="checkbox" id="bb-toggle-oos">
+                        <span>Show Out of Stock</span>
+                    </label>
                 </div>
             </div>
             <div class="bb-m-body">
@@ -459,7 +469,6 @@
             sBtn.innerText = 'Stopping scan...';
         };
 
-        // Pass 2: Background Recovery Worker
         const startBackgroundSync = async () => {
             if (isBackgroundSyncing || !failedQueue.length) return;
             isBackgroundSyncing = true;
@@ -472,7 +481,6 @@
                 const item = failedQueue.shift();
                 syncBadge.innerHTML = `⚡ Syncing ${item.cat.name} (P${item.page}) in background...`;
 
-                // Respectful background pacing so Akamai never blocks
                 await sleep(3000);
 
                 const url = `https://www.bigbasket.com/listing-svc/v2/products?type=pc&slug=${item.cat.slug}&page=${item.page}&sort=dphtl`;
@@ -481,7 +489,6 @@
                 if (data) {
                     const newItems = handlePage(data, item.cat.name);
                     if (newItems.length) {
-                        // Merge and deduplicate
                         const seen = new Set(prods.map(p => `${p.id}-${p.cat}`));
                         const added = [];
                         newItems.forEach(p => {
@@ -561,7 +568,6 @@
                 openModal();
             }
 
-            // Launch background recovery worker if any items were deferred
             if (failedQueue.length > 0 && !abortScan) {
                 startBackgroundSync();
             }
@@ -681,17 +687,22 @@
         const renderModal = () => {
             const q = document.getElementById('bb-q').value.toLowerCase().trim();
             const c = document.getElementById('bb-fc').value;
+            const showOOS = document.getElementById('bb-toggle-oos')?.checked || false;
 
             let filtered = prods.filter(p => {
                 const matchQ = !q || p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q);
                 const matchC = c === 'all' || p.cat === c;
                 const matchB = selectedBrands.size === 0 || selectedBrands.has(p.brand);
-                return matchQ && matchC && matchB;
+                const matchOOS = showOOS ? true : !p.isOutOfStock;
+                return matchQ && matchC && matchB && matchOOS;
             });
 
             filtered.sort((a, b) => b.disc - a.disc);
 
-            document.getElementById('bb-stat').innerText = `Showing ${filtered.length} of ${prods.length} items across ${new Set(prods.map(p => p.cat)).size} categories`;
+            const oosCount = prods.filter(p => p.isOutOfStock).length;
+            const statusSuffix = !showOOS && oosCount > 0 ? ` (${oosCount} Out of Stock hidden)` : '';
+            document.getElementById('bb-stat').innerText = `Showing ${filtered.length} of ${prods.length} items across ${new Set(prods.map(p => p.cat)).size} categories${statusSuffix}`;
+
             document.getElementById('bb-grid').innerHTML = filtered.map(p => `
                 <a href="${p.url}" target="_blank" class="bb-card ${p.isOutOfStock ? 'oos' : ''}">
                     <div class="bb-bdg">
@@ -712,6 +723,7 @@
         document.getElementById('bb-m-cls').onclick = () => { m.style.display = 'none'; };
         document.getElementById('bb-q').oninput = renderModal;
         document.getElementById('bb-fc').onchange = renderModal;
+        document.getElementById('bb-toggle-oos').onchange = renderModal;
     };
 
     buildUI();
