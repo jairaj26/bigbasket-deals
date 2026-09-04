@@ -1,5 +1,18 @@
 # Scratch and dump data files
 *.txt
 !bookmarklet.txt
+!pure_ascii_bookmarklet.txt
+!requirements.txt
 .system_generated/
 *.log
+
+# Python & Local Environment
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+seen_deals.db
+user_settings.json
+.venv/
+env/
+

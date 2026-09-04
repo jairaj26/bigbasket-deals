@@ -1,0 +1,56 @@
+name: BigBasket Deal Finder & Telegram Alerts
+
+on:
+  schedule:
+    # 1. Midnight Deal Drop: 12:05 AM IST (18:35 UTC) - Main daily deal & pricing reset
+    - cron: '35 18 * * *'
+    # 2. Morning Deal Drop: 7:35 AM IST (02:05 UTC) - Morning grocery & slot refresh
+    - cron: '5 2 * * *'
+    # 3. Evening Deal Drop: 6:05 PM IST (12:35 UTC) - Evening flash clearance
+    - cron: '35 12 * * *'
+  workflow_dispatch:
+    inputs:
+      pincode:
+        description: 'Delivery Pincode (e.g. 560001)'
+        required: false
+        default: '560001'
+      min_discount:
+        description: 'Minimum Discount % (e.g. 70)'
+        required: false
+        default: '70'
+
+jobs:
+  scan-and-alert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restore Deal Tracker Cache
+        uses: actions/cache@v4
+        with:
+          path: seen_deals.db
+          key: bb-seen-deals-${{ github.run_id }}
+          restore-keys: |
+            bb-seen-deals-
+
+      - name: Run Deal Finder & Push to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PINCODE: ${{ github.event.inputs.pincode || secrets.PINCODE || '560001' }}
+          MIN_DISCOUNT: ${{ github.event.inputs.min_discount || '70' }}
+        run: |
+          python main.py --notify --pincode "$PINCODE" --min-discount "$MIN_DISCOUNT"
