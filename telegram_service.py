@@ -35,9 +35,10 @@ class TelegramService:
         chat_id: Optional[str],
         text: str,
         parse_mode: str = "HTML",
-        disable_web_page_preview: bool = True
+        disable_web_page_preview: bool = True,
+        reply_markup: Optional[dict] = None
     ) -> bool:
-        """Sends a single message to a chat ID."""
+        """Sends a single message to a chat ID (no attachments/photos)."""
         target_chat = chat_id or self.default_chat_id
         if not target_chat:
             logger.error("No chat_id provided and no default_chat_id configured.")
@@ -50,6 +51,8 @@ class TelegramService:
             "parse_mode": parse_mode,
             "disable_web_page_preview": disable_web_page_preview
         }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
 
         try:
             r = requests.post(url, json=payload, timeout=12)
