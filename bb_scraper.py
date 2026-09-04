@@ -4,6 +4,7 @@ import uuid
 import time
 import random
 import logging
+import base64
 from typing import List, Dict, Optional, Callable
 from config import DEFAULT_CATEGORIES
 
@@ -15,6 +16,7 @@ class BigBasketScraper:
     VISITOR_API = f"{BASE_URL}/mapi/v3.5.2/create-visitor/?integratedglobalsa=true"
     AUTOCOMPLETE_API = f"{BASE_URL}/places/v1/places/autocomplete/"
     PLACE_DETAILS_API = f"{BASE_URL}/places/v1/places/details/"
+    HEADER_API = f"{BASE_URL}/ui-svc/v2/header"
 
     def __init__(self, user_agent: Optional[str] = None):
         self.session = requests.Session()
@@ -52,7 +54,10 @@ class BigBasketScraper:
     def set_pincode(self, pincode: str) -> bool:
         """
         Configures the session for a specific delivery pincode.
-        Resolves geolocation/place details and creates visitor context.
+        Resolves geolocation, establishes local dark store / service area (SA) context,
+        and sets essential cookies (_bb_sa_ids, _bb_cda_sa_info, is_global=0) so that
+        listing APIs return genuine in-stock deals for the user's exact area instead of
+        central warehouse clearance remnants.
         """
         pincode = str(pincode).strip()
         if not re.match(r'^\d{6}$', pincode):
@@ -67,47 +72,85 @@ class BigBasketScraper:
             # 1. Autocomplete / place lookup
             auto_url = f"{self.AUTOCOMPLETE_API}?inputText={pincode}&token={token}"
             auto_res = self.session.get(auto_url, timeout=10)
+            place_id = None
             if auto_res.ok:
                 predictions = auto_res.json().get('predictions', [])
                 if predictions:
-                    place_id = predictions[0].get('placeId')
+                    place_id = predictions[0].get('placeId') or predictions[0].get('place_id')
                     self.location_name = predictions[0].get('description')
-                    # Query place details if place_id exists
-                    if place_id:
-                        det_url = f"{self.PLACE_DETAILS_API}?placeId={place_id}&token={token}"
-                        det_res = self.session.get(det_url, timeout=10)
-                        if det_res.ok:
-                            det_data = det_res.json()
-                            fmt_addr = det_data.get('formattedAddress')
-                            if fmt_addr:
-                                self.location_name = fmt_addr
 
-            # 2. Register visitor context with pincode
-            payload = {
-                'z': pincode,
-                'is_bot': 'false',
-                'send_global_address': '1'
-            }
-            # Note: create-visitor expects form-urlencoded
-            vis_res = self.session.post(
-                self.VISITOR_API,
-                data=payload,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=10
-            )
+            # 2. Query place details for exact lat/long and city
+            lat, lng = None, None
+            city = "Bengaluru"
+            if place_id:
+                det_url = f"{self.PLACE_DETAILS_API}?placeId={place_id}&token={token}"
+                det_res = self.session.get(det_url, timeout=10)
+                if det_res.ok:
+                    det_data = det_res.json()
+                    loc = det_data.get('geometry', {}).get('location', {})
+                    lat = loc.get('lat')
+                    lng = loc.get('lng')
+                    fmt_addr = det_data.get('formattedAddress')
+                    if fmt_addr:
+                        self.location_name = fmt_addr
 
-            if vis_res.ok:
-                resp_json = vis_res.json()
-                cookie_dict = resp_json.get('response', {})
-                for k, v in cookie_dict.items():
-                    if v:
+                    for comp in det_data.get('addressComponents', []):
+                        types = comp.get('types', [])
+                        if 'locality' in types:
+                            city = comp.get('longName')
+                            break
+
+            # 3. Fallback coordinates if autocomplete is unavailable
+            if lat is None or lng is None:
+                lat, lng = 12.9716, 77.5946  # Default fallback
+
+            # 4. Construct BigBasket address and lat/long cookies
+            lat_long_str = f"{lat}|{lng}"
+            b64_lat_long = base64.b64encode(lat_long_str.encode()).decode()
+            addr_str = f"{lat}|{lng}|{pincode}|{pincode}|{city}|1|false|true|true|Bigbasketeer"
+            b64_addr = base64.b64encode(addr_str.encode()).decode()
+
+            self.session.cookies.set('_bb_lat_long', b64_lat_long, domain='.bigbasket.com')
+            self.session.cookies.set('_bb_addressinfo', b64_addr, domain='.bigbasket.com')
+            self.session.cookies.set('_bb_pin_code', pincode, domain='.bigbasket.com')
+            self.session.cookies.set('_bb_cid', '1', domain='.bigbasket.com')
+
+            # 5. Resolve Local Dark Store & Service Area IDs via Header API
+            ts = int(time.time() * 1000)
+            header_url = f"{self.HEADER_API}/?send_door_info=true&send_address_set_by_user=true&i={ts}"
+            h_res = self.session.get(header_url, timeout=10)
+            if h_res.ok:
+                h_data = h_res.json()
+                add_cookies = h_data.get('additional_cookies', {})
+                for k, v in add_cookies.items():
+                    if v is not None:
                         self.session.cookies.set(k, str(v), domain='.bigbasket.com')
-                self.session.cookies.set('_bb_pin_code', pincode, domain='.bigbasket.com')
+
                 self.current_pincode = pincode
-                logger.info(f"Successfully set BigBasket location to pincode {pincode} ({self.location_name or 'Resolved'})")
+                sa_id = add_cookies.get('_bb_sa_ids', self.session.cookies.get('_bb_sa_ids', 'Unknown'))
+                logger.info(
+                    f"Successfully bound BigBasket session to pincode {pincode} "
+                    f"(Dark Store SA ID: {sa_id}, Area: {self.location_name or 'Resolved'})"
+                )
                 return True
             else:
-                logger.error(f"Failed to set visitor context for pincode {pincode}: {vis_res.status_code}")
+                logger.warning(f"Header API returned status {h_res.status_code} for pincode {pincode}")
+                # Fallback to visitor API registration
+                vis_payload = {'z': pincode, 'is_bot': 'false', 'send_global_address': '0'}
+                vis_res = self.session.post(
+                    self.VISITOR_API,
+                    data=vis_payload,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    timeout=10
+                )
+                if vis_res.ok:
+                    cookie_dict = vis_res.json().get('response', {})
+                    for k, v in cookie_dict.items():
+                        if v:
+                            self.session.cookies.set(k, str(v), domain='.bigbasket.com')
+                    self.session.cookies.set('_bb_pin_code', pincode, domain='.bigbasket.com')
+                    self.current_pincode = pincode
+                    return True
                 return False
 
         except Exception as e:
@@ -212,6 +255,8 @@ class BigBasketScraper:
         # Item is only purchasable if avail_status is '001', button is 'Add', and not marked not_for_sale
         is_oos = bool(
             is_available is False
+            or p.get('is_available') is False
+            or p.get('all_stores_oos') is True
             or not_for_sale is True
             or (avail_status and avail_status != '001')
             or (button_val and button_val not in ('add', 'in basket'))

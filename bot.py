@@ -114,10 +114,21 @@ class InteractiveDealBot:
 
     def handle_update(self, update: dict):
         message = update.get("message")
-        if not message or "text" not in message:
+        if not message:
             return
 
         chat_id = str(message["chat"]["id"])
+
+        # Reject attachments / media and guide user
+        if "text" not in message:
+            self.tg.send_message(
+                chat_id,
+                "⚠️ <b>Attachments are disabled.</b>\n\n"
+                "Please enter a <b>6-digit Pincode</b> (e.g. <code>560001</code>) or choose an option below:",
+                reply_markup=MAIN_KEYBOARD
+            )
+            return
+
         user_text = message["text"].strip()
         first_name = message.get("from", {}).get("first_name", "there")
 
