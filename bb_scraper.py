@@ -258,18 +258,19 @@ class BigBasketScraper:
         url = f"{self.LISTING_API}?type=pc&slug={slug}&page={page}&sort=dphtl"
         for attempt in range(retries + 1):
             try:
+                self.session.headers["x-tracker"] = f"bb-py-{uuid.uuid4()}"
                 res = self.session.get(url, timeout=12)
                 if res.ok:
                     return res.json()
                 elif res.status_code == 429:
-                    wait_time = (attempt + 1) * 2.5
+                    wait_time = (attempt + 1) * 5.0
                     logger.warning(f"Rate limited (429) on {slug} P{page}. Backing off {wait_time}s...")
                     time.sleep(wait_time)
                 else:
                     logger.warning(f"Failed to fetch {slug} P{page}: Status {res.status_code}")
             except Exception as e:
                 logger.error(f"Network error fetching {slug} P{page}: {e}")
-                time.sleep(1.5)
+                time.sleep(2.0)
         return None
 
     def fetch_deals(
@@ -339,10 +340,10 @@ class BigBasketScraper:
                                         page_deal_count += 1
 
                 # Polite delay between pages
-                time.sleep(random.uniform(0.8, 1.4))
+                time.sleep(random.uniform(1.2, 1.8))
 
             # Polite delay between categories
-            time.sleep(random.uniform(1.0, 1.8))
+            time.sleep(random.uniform(2.2, 3.2))
 
         # Sort all deals from highest discount % to lowest
         all_deals.sort(key=lambda x: x['disc'], reverse=True)
