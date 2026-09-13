@@ -37,23 +37,32 @@ def run_dry_run(pincode: str, min_discount: float, max_pages: int):
         on_progress=lambda cat, curr, tot: print(f"[{curr}/{tot}] Scanning {cat}...")
     )
 
-    print(f"\n✨ Scan complete! Found {len(deals)} deals with ≥ {min_discount}% OFF:\n")
+    from deal_differ import analyze_and_update_deals, group_products_by_category
+    alert_deals, home_pool, pooja_pool, stale_deals = analyze_and_update_deals(deals, pincode)
+    grouped = group_products_by_category(deals)
+
+    print(f"\n✨ Scan complete! Found {len(deals)} total deals with ≥ {min_discount}% OFF:")
+    print(f"   • Alert-eligible (New / Price Drop / Weekly Pick): {len(alert_deals)}")
+    print(f"   • Suppressed (Unchanged under 7-day cooldown): {len(stale_deals)}")
+    print(f"\n📊 Category Breakdown:")
+    for cat_name, items in grouped.items():
+        print(f"   • {cat_name}: {len(items)} deals")
 
     if not deals:
-        print("No deals matched your criteria at this time.")
+        print("\nNo deals matched your criteria at this time.")
         return
 
-    for idx, d in enumerate(deals[:30], 1):
-        print(f"{idx}. {d['name']}")
-        print(f"   Brand: {d['brand']} | Category: {d['category']}")
+    print(f"\n🔥 Top Alert-Eligible Deals (showing up to 25):\n")
+    sample_deals = alert_deals[:25] if alert_deals else deals[:25]
+    for idx, d in enumerate(sample_deals, 1):
+        tag_str = f" [{d.get('diff_tag')}]" if d.get('diff_tag') else ""
+        print(f"{idx}. {d['name']}{tag_str}")
+        print(f"   Brand: {d['brand']} | Bucket: {d.get('category_bucket', d['category'])}")
         print(f"   Selling Price: Rs.{d['sp']:.2f} (MRP: Rs.{d['mrp']:.2f})")
         print(f"   Discount: {d['disc']}% OFF | Savings: Rs.{d['savings']:.2f}")
         if d.get('unit_price'):
             print(f"   Unit Price: {d['unit_price']}")
         print(f"   Link: {d['url']}\n")
-
-    if len(deals) > 30:
-        print(f"... and {len(deals) - 30} more deals found!\n")
 
 def run_notify(pincode: str, min_discount: float, max_pages: int, chat_id: str):
     if not config.TELEGRAM_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN == "your_telegram_bot_token_here":
@@ -66,10 +75,9 @@ def run_notify(pincode: str, min_discount: float, max_pages: int, chat_id: str):
         sys.exit(1)
 
     tg = TelegramService(config.TELEGRAM_BOT_TOKEN, default_chat_id=target_chat)
-    tracker = DealTracker()
     scraper = BigBasketScraper()
 
-    logger.info(f"Starting deal scan for Pincode: {pincode}, Min Discount: {min_discount}%...")
+    logger.info(f"Starting scheduled deal scan for Pincode: {pincode}, Min Discount: {min_discount}%...")
     deals = scraper.fetch_deals(
         pincode=pincode,
         min_discount=min_discount,
@@ -79,31 +87,42 @@ def run_notify(pincode: str, min_discount: float, max_pages: int, chat_id: str):
 
     logger.info(f"Fetched {len(deals)} total deals meeting threshold.")
 
-    # Deduplicate: only get unseen deals or deals whose prices dropped further
-    unseen_deals = tracker.filter_unseen_deals(
-        deals=deals,
-        pincode=pincode,
-        cooldown_hours=config.COOLDOWN_HOURS
+    # Apply 7-day hybrid cooldown and price-drop tracking (identical to JioMart)
+    from deal_differ import analyze_and_update_deals
+    from bot import get_main_inline_keyboard
+    alert_deals, home_pool, pooja_pool, stale_deals = analyze_and_update_deals(
+        current_products=deals,
+        pincode=pincode
     )
 
-    logger.info(f"Identified {len(unseen_deals)} new unseen deals.")
+    logger.info(
+        f"Differ Results: {len(alert_deals)} alert deals (new/drops/weekly), "
+        f"{len(stale_deals)} unchanged deals suppressed under 7-day cooldown."
+    )
 
-    if unseen_deals:
+    if alert_deals:
         location_name = scraper.location_name or ""
-        sent_chunks = tg.send_deal_list(
-            chat_id=target_chat,
-            deals=unseen_deals,
+        # Format messages with diff tags
+        from formatter import format_deals_message
+        messages = format_deals_message(
+            deals=alert_deals,
             pincode=pincode,
             location_name=location_name,
             min_discount=min_discount,
-            max_items=40
+            max_items=35
         )
-        tracker.mark_deals_as_seen(unseen_deals, pincode=pincode)
-        logger.info(f"Successfully posted {len(unseen_deals)} deals across {sent_chunks} messages to Telegram.")
-        print(f"\n✅ Posted {len(unseen_deals)} fresh deals to Telegram chat ({target_chat})!\n")
+        for i, msg in enumerate(messages):
+            # Attach inline navigation keyboard to final chunk
+            kb = get_main_inline_keyboard() if i == len(messages) - 1 else None
+            tg.send_message(chat_id=target_chat, text=msg, reply_markup=kb)
+            import time
+            time.sleep(1.2)
+
+        logger.info(f"Successfully posted {len(alert_deals)} deals across {len(messages)} messages to Telegram.")
+        print(f"\n✅ Posted {len(alert_deals)} deals to Telegram chat ({target_chat})!\n")
     else:
-        logger.info("No new deals to post (all currently active deals have already been notified).")
-        print("\nℹ️ No new deals to post (already notified recently).\n")
+        logger.info("No new deals or price drops to alert (all current deals suppressed under 7-day cooldown).")
+        print("\nℹ️ No new deals to post (all active deals notified within the last 7 days without price change).\n")
 
 def test_telegram(chat_id: str):
     if not config.TELEGRAM_BOT_TOKEN or config.TELEGRAM_BOT_TOKEN == "your_telegram_bot_token_here":

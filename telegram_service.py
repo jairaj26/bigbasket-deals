@@ -113,3 +113,16 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error getting Telegram updates: {e}")
         return []
+
+    def answer_callback_query(self, callback_query_id: str, text: Optional[str] = None) -> bool:
+        """Answers an inline button click callback query to stop client spinner."""
+        url = f"{self.base_url}/answerCallbackQuery"
+        payload = {"callback_query_id": callback_query_id}
+        if text:
+            payload["text"] = text
+        try:
+            r = requests.post(url, json=payload, timeout=8)
+            return r.ok
+        except Exception as e:
+            logger.error(f"Failed to answer callback query: {e}")
+            return False
