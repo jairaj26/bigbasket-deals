@@ -40,3 +40,40 @@ DEFAULT_CATEGORIES = [
     ("Kitchen & Home Needs", "kitchen-garden-pets"),
     ("Fruits & Vegetables", "fruits-vegetables"),
 ]
+
+# Distributed Scraper Chunks (for parallel multi-cloud / GitHub Actions runners)
+# Each chunk runs on an independent cloud VM with a distinct public IP
+CATEGORY_CHUNKS = {
+    1: [
+        ("Foodgrains, Oil & Masala", "foodgrains-oil-masala"),
+        ("Edible Oils & Ghee", "edible-oils-ghee"),
+        ("Dry Fruits", "dry-fruits"),
+        ("Gourmet & World Food", "gourmet-world-food"),
+        ("Fruits & Vegetables", "fruits-vegetables"),
+    ],
+    2: [
+        ("Dairy", "dairy"),
+        ("Bakery, Cakes & Dairy", "bakery-cakes-dairy"),
+        ("Snacks & Branded Foods", "snacks-branded-foods"),
+        ("Biscuits & Cookies", "biscuits-cookies"),
+        ("Chocolates & Candies", "chocolates-candies"),
+        ("Beverages (Tea/Coffee)", "beverages"),
+    ],
+    3: [
+        ("Cleaning & Household", "cleaning-household"),
+        ("Detergents & Dishwash", "detergents-dishwash"),
+        ("Kitchen & Home Needs", "kitchen-garden-pets"),
+        ("Baby Care", "baby-care"),
+        ("Diapers & Wipes", "diapers-wipes"),
+    ],
+    4: [
+        ("Beauty & Hygiene", "beauty-hygiene"),
+        ("Skin Care", "skin-care"),
+        ("Hair Care", "hair-care"),
+        ("Bath & Hand Wash", "bath-hand-wash"),
+    ],
+}
+
+def get_categories_for_chunk(chunk_id: int):
+    """Returns categories for a specific runner chunk ID (1-4). Defaults to all categories."""
+    return CATEGORY_CHUNKS.get(chunk_id, DEFAULT_CATEGORIES)

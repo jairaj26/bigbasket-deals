@@ -15,4 +15,7 @@ seen_deals.db
 user_settings.json
 .venv/
 env/
-
+deals_chunk_*.json
+scratch_chunk*.json
+downloaded_chunks/
+deals_scraped.json
