@@ -2,12 +2,12 @@ name: BigBasket Deal Finder & Telegram Alerts
 
 on:
   schedule:
-    # 1. Midnight Deal Drop: 12:05 AM IST (18:35 UTC) - Main daily deal & pricing reset
-    - cron: '35 18 * * *'
-    # 2. Morning Deal Drop: 7:35 AM IST (02:05 UTC) - Morning grocery & slot refresh
-    - cron: '5 2 * * *'
-    # 3. Evening Deal Drop: 6:05 PM IST (12:35 UTC) - Evening flash clearance
-    - cron: '35 12 * * *'
+    # 1. Midnight Deal Drop: 12:01 AM IST (18:31 UTC) - Main daily deal & pricing reset
+    - cron: '31 18 * * *'
+    # 2. Morning Deal Drop: 7:01 AM IST (01:31 UTC) - Morning grocery & slot refresh
+    - cron: '31 1 * * *'
+    # 3. Evening Deal Drop: 6:01 PM IST (12:31 UTC) - Evening flash clearance
+    - cron: '31 12 * * *'
   workflow_dispatch:
     inputs:
       pincode:

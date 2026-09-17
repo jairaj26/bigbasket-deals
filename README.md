@@ -100,9 +100,9 @@ You can run this automation in the cloud for free without keeping your PC powere
    - `TELEGRAM_CHAT_ID`: Your Telegram Chat/Channel ID.
    - `PINCODE`: Your 6-digit delivery pincode (e.g. `560001`).
 4. That's it! The workflow in [`.github/workflows/bb_deals.yml`](.github/workflows/bb_deals.yml) automatically runs at BigBasket's 3 key deal refresh windows:
-   - **🌙 Midnight Drop (12:05 AM IST)**: Daily deal reset, bank offers, and campaign rollouts.
-   - **☀️ Morning Refresh (7:35 AM IST)**: Morning grocery slots and fresh stock updates.
-   - **🌆 Evening Clearance (6:05 PM IST)**: Evening flash drops and clearance additions.
+   - **🌙 Midnight Drop (12:01 AM IST)**: Daily deal reset, bank offers, and campaign rollouts.
+   - **☀️ Morning Refresh (7:01 AM IST)**: Morning grocery slots and fresh stock updates.
+   - **🌆 Evening Clearance (6:01 PM IST)**: Evening flash drops and clearance additions.
    
    *(You can also trigger a scan on-demand anytime from the GitHub Actions tab or by typing `/deals` to your Telegram bot).*
 

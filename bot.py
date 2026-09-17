@@ -36,11 +36,11 @@ USER_DEAL_POOLS: Dict[str, Dict[str, Any]] = {}
 
 SCHEDULE_INFO_TEXT = (
     "⏰ <b>BigBasket Scheduled Deal Drops (IST):</b>\n\n"
-    "🌙 <b>Midnight Drop: 12:05 AM IST</b>\n"
+    "🌙 <b>Midnight Drop: 12:01 AM IST</b>\n"
     "   <i>Main daily campaign rollover & price updates</i>\n\n"
-    "☀️ <b>Morning Refresh: 7:35 AM IST</b>\n"
+    "☀️ <b>Morning Refresh: 7:01 AM IST</b>\n"
     "   <i>Morning grocery slots & fresh stock updates</i>\n\n"
-    "🌆 <b>Evening Clearance: 6:05 PM IST</b>\n"
+    "🌆 <b>Evening Clearance: 6:01 PM IST</b>\n"
     "   <i>Evening flash drops & clearance items</i>\n\n"
     "✨ <i>Deals are checked automatically at these intervals with 7-day cooldown on unchanged items!</i>"
 )
