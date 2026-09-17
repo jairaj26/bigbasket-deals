@@ -234,8 +234,9 @@ def run_aggregate_and_notify(
     logger.info(f"Total merged unique deals across all chunks: {len(merged_deals)}")
 
     if not merged_deals:
-        print("\n⚠️ No deals found across the chunk artifacts.")
-        return
+        logger.error("No deals found across any chunk artifacts! Scraping may have failed or was blocked by anti-bot.")
+        print("\n❌ Error: No deals found across the chunk artifacts.\n")
+        sys.exit(1)
 
     from deal_differ import analyze_and_update_deals, group_products_by_category
     alert_deals, home_pool, pooja_pool, stale_deals = analyze_and_update_deals(

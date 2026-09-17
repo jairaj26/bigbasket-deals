@@ -20,11 +20,11 @@ class BigBasketScraper:
 
     def __init__(self, user_agent: Optional[str] = None):
         self.session = requests.Session()
-        self.session_tracker = f"bb-py-{uuid.uuid4()}"
+        self.session_tracker = str(uuid.uuid4())
         self.ua = user_agent or (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
+            "Chrome/128.0.0.0 Safari/537.36"
         )
         self.session.headers.update({
             "User-Agent": self.ua,
@@ -35,7 +35,15 @@ class BigBasketScraper:
             "x-entry-context-id": "100",
             "x-tracker": self.session_tracker,
             "referer": "https://www.bigbasket.com/",
-            "origin": "https://www.bigbasket.com"
+            "origin": "https://www.bigbasket.com",
+            "sec-ch-ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "accept-language": "en-US,en;q=0.9",
+            "priority": "u=1, i"
         })
         self.current_pincode: Optional[str] = None
         self.location_name: Optional[str] = None
@@ -45,8 +53,8 @@ class BigBasketScraper:
         """Visits homepage to initialize base session and Akamai cookies."""
         try:
             r = self.session.get(self.BASE_URL, timeout=12)
-            self.is_initialized = r.ok
-            return r.ok
+            self.is_initialized = True
+            return True
         except Exception as e:
             logger.error(f"Error bootstrapping BigBasket session: {e}")
             return False
@@ -303,7 +311,7 @@ class BigBasketScraper:
         url = f"{self.LISTING_API}?type=pc&slug={slug}&page={page}&sort=dphtl"
         for attempt in range(retries + 1):
             try:
-                self.session.headers["x-tracker"] = f"bb-py-{uuid.uuid4()}"
+                self.session.headers["x-tracker"] = str(uuid.uuid4())
                 res = self.session.get(url, timeout=12)
                 if res.ok:
                     return res.json()
