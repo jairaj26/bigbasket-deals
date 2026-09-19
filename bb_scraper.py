@@ -1,3 +1,9 @@
+try:
+    from curl_cffi import requests as c_requests
+    HAS_CURL_CFFI = True
+except ImportError:
+    import requests as c_requests
+    HAS_CURL_CFFI = False
 import requests
 import re
 import uuid
@@ -19,31 +25,25 @@ class BigBasketScraper:
     HEADER_API = f"{BASE_URL}/ui-svc/v2/header"
 
     def __init__(self, user_agent: Optional[str] = None):
-        self.session = requests.Session()
         self.session_tracker = str(uuid.uuid4())
-        self.ua = user_agent or (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/128.0.0.0 Safari/537.36"
-        )
+        if HAS_CURL_CFFI:
+            self.session = c_requests.Session(impersonate="chrome131_android")
+        else:
+            self.session = requests.Session()
+            self.ua = user_agent or (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/128.0.0.0 Safari/537.36"
+            )
+            self.session.headers.update({"User-Agent": self.ua})
+
         self.session.headers.update({
-            "User-Agent": self.ua,
-            "Accept": "application/json",
-            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*",
             "x-channel": "BB-WEB",
             "x-entry-context": "bb-b2c",
             "x-entry-context-id": "100",
             "x-tracker": self.session_tracker,
             "referer": "https://www.bigbasket.com/",
-            "origin": "https://www.bigbasket.com",
-            "sec-ch-ua": '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "same-origin",
-            "accept-language": "en-US,en;q=0.9",
-            "priority": "u=1, i"
         })
         self.current_pincode: Optional[str] = None
         self.location_name: Optional[str] = None
@@ -52,9 +52,9 @@ class BigBasketScraper:
     def bootstrap_session(self) -> bool:
         """Visits homepage to initialize base session and Akamai cookies."""
         try:
-            r = self.session.get(self.BASE_URL, timeout=12)
-            self.is_initialized = True
-            return True
+            r = self.session.get(self.BASE_URL, timeout=15)
+            self.is_initialized = (r.status_code == 200)
+            return self.is_initialized
         except Exception as e:
             logger.error(f"Error bootstrapping BigBasket session: {e}")
             return False
@@ -123,7 +123,21 @@ class BigBasketScraper:
             self.session.cookies.set('_bb_pin_code', pincode, domain='.bigbasket.com')
             self.session.cookies.set('_bb_cid', '1', domain='.bigbasket.com')
 
-            # 5. Resolve Local Dark Store & Service Area IDs via Header API
+            # 5. Register visitor context with pincode to establish _bb_vid and _bb_aid
+            vis_payload = {'z': pincode, 'is_bot': 'false', 'send_global_address': '0'}
+            vis_res = self.session.post(
+                self.VISITOR_API,
+                data=vis_payload,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10
+            )
+            if vis_res.ok:
+                cookie_dict = vis_res.json().get('response', {})
+                for k, v in cookie_dict.items():
+                    if v:
+                        self.session.cookies.set(k, str(v), domain='.bigbasket.com')
+
+            # 6. Resolve Local Dark Store & Service Area IDs via Header API
             ts = int(time.time() * 1000)
             header_url = f"{self.HEADER_API}/?send_door_info=true&send_address_set_by_user=true&i={ts}"
             h_res = self.session.get(header_url, timeout=10)
@@ -143,23 +157,8 @@ class BigBasketScraper:
                 return True
             else:
                 logger.warning(f"Header API returned status {h_res.status_code} for pincode {pincode}")
-                # Fallback to visitor API registration
-                vis_payload = {'z': pincode, 'is_bot': 'false', 'send_global_address': '0'}
-                vis_res = self.session.post(
-                    self.VISITOR_API,
-                    data=vis_payload,
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    timeout=10
-                )
-                if vis_res.ok:
-                    cookie_dict = vis_res.json().get('response', {})
-                    for k, v in cookie_dict.items():
-                        if v:
-                            self.session.cookies.set(k, str(v), domain='.bigbasket.com')
-                    self.session.cookies.set('_bb_pin_code', pincode, domain='.bigbasket.com')
-                    self.current_pincode = pincode
-                    return True
-                return False
+                self.current_pincode = pincode
+                return True if self.session.cookies.get('_bb_sa_ids') else False
 
         except Exception as e:
             logger.error(f"Exception setting pincode {pincode}: {e}")
@@ -312,7 +311,8 @@ class BigBasketScraper:
         for attempt in range(retries + 1):
             try:
                 self.session.headers["x-tracker"] = str(uuid.uuid4())
-                res = self.session.get(url, timeout=12)
+                self.session.headers["referer"] = f"https://www.bigbasket.com/cl/{slug}/"
+                res = self.session.get(url, timeout=15)
                 if res.ok:
                     return res.json()
                 elif res.status_code == 429:
@@ -339,10 +339,10 @@ class BigBasketScraper:
         Scans BigBasket categories for deals meeting or exceeding `min_discount`.
         Returns deduplicated product deals sorted by discount % descending.
         """
+        if not self.is_initialized:
+            self.bootstrap_session()
         if pincode:
             self.set_pincode(pincode)
-        elif not self.is_initialized:
-            self.bootstrap_session()
 
         cats = categories or DEFAULT_CATEGORIES
         total_cats = len(cats)
