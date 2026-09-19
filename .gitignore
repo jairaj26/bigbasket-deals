@@ -1,21 +1,12 @@
-# Scratch and dump data files
+# Scratch and temporary files
 *.txt
 !bookmarklet.txt
-!pure_ascii_bookmarklet.txt
-!requirements.txt
 .system_generated/
 *.log
+scratch/
+node_modules/
+.DS_Store
 
-# Python & Local Environment
-__pycache__/
-*.py[cod]
-*$py.class
+# Environment and secrets
 .env
-seen_deals.db
-user_settings.json
-.venv/
-env/
-deals_chunk_*.json
-scratch_chunk*.json
-downloaded_chunks/
-deals_scraped.json
+.env.*

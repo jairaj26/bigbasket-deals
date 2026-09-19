@@ -39,6 +39,7 @@ try {
 const bookmarklet = 'javascript:' + code;
 
 fs.writeFileSync(path.join(__dirname, 'bookmarklet.txt'), bookmarklet, 'utf8');
+fs.writeFileSync(path.join(__dirname, 'bb_deal_finder.min.js'), code, 'utf8');
 console.log('Final Bookmarklet Size:', bookmarklet.length, 'characters (~' + (bookmarklet.length / 1024).toFixed(2) + ' KB)');
 
 // Update index.html cleanly

@@ -11,7 +11,7 @@
     const SESSION_TRACKER = (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('bb-' + Date.now()));
 
     const CFG = {
-        maxCats: 1,
+        maxCats: 2,
         pagesPerCat: 2,
         dMin: 800,
         dMax: 1100,
@@ -267,13 +267,12 @@
             .bb-sync-badge.done{background:#dcfce7;color:#15803d;border-color:#bbf7d0;}
             .bb-m-cls{background:#e2e8f0;border:none;color:#334155;padding:6px 14px;border-radius:6px;font-weight:700;cursor:pointer;}
             
-            .bb-m-ctrl{display:grid;grid-template-columns:2.5fr 1.3fr 1.3fr auto;gap:10px;align-items:center;}
-            @media(max-width:850px){.bb-m-ctrl{grid-template-columns:1fr 1fr;}}
-            @media(max-width:550px){.bb-m-ctrl{grid-template-columns:1fr;}}
-            .bb-m-ctrl input,.bb-m-ctrl select{padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;outline:none;background:#fff;}
+            .bb-m-ctrl{display:grid;grid-template-columns:1.8fr 1.2fr 1.2fr 1.2fr auto;gap:8px;align-items:center;}
+            @media(max-width:950px){.bb-m-ctrl{grid-template-columns:1fr 1fr;}}
+            .bb-m-ctrl input,.bb-m-ctrl select{padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:12.5px;outline:none;background:#fff;}
             
             .bb-dd-wrap{position:relative;}
-            .bb-dd-btn{width:100%;padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff;color:#0f172a;text-align:left;cursor:pointer;display:flex;justify-content:space-between;align-items:center;}
+            .bb-dd-btn{width:100%;padding:8px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:12.5px;background:#fff;color:#0f172a;text-align:left;cursor:pointer;display:flex;justify-content:space-between;align-items:center;}
             .bb-dd-menu{position:absolute;top:calc(100% + 4px);left:0;width:100%;min-width:220px;max-height:280px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,0.15);display:none;flex-direction:column;z-index:200;padding:8px;}
             .bb-dd-search{padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;margin-bottom:6px;outline:none;}
             .bb-dd-acts{display:flex;justify-content:space-between;padding:4px 2px 6px;border-bottom:1px solid #f1f5f9;margin-bottom:4px;font-size:11px;}
@@ -284,12 +283,12 @@
             .bb-dd-item input{accent-color:#2e7d32;cursor:pointer;}
             
             /* Out of stock toggle button */
-            .bb-oos-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:#475569;cursor:pointer;padding:8px 12px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;user-select:none;white-space:nowrap;transition:background 0.15s,border-color 0.15s;}
+            .bb-oos-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#475569;cursor:pointer;padding:8px 10px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;user-select:none;white-space:nowrap;transition:background 0.15s,border-color 0.15s;}
             .bb-oos-toggle:hover{background:#f8fafc;border-color:#94a3b8;}
-            .bb-oos-toggle input{accent-color:#2e7d32;cursor:pointer;width:15px;height:15px;}
+            .bb-oos-toggle input{accent-color:#2e7d32;cursor:pointer;width:14px;height:14px;}
             
-            .bb-m-body{flex:1;overflow-y:auto;padding:20px;}
-            .bb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;}
+            .bb-m-body{flex:1;overflow-y:auto;padding:16px;}
+            .bb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;}
             .bb-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px;display:flex;flex-direction:column;position:relative;text-decoration:none;color:inherit;cursor:pointer;transition:transform 0.12s ease-out,box-shadow 0.12s ease-out,border-color 0.12s ease-out;}
             .bb-card:hover{transform:translateY(-1.5px);box-shadow:0 4px 12px rgba(0,0,0,0.06);border-color:#cbd5e1;}
             .bb-card.oos{opacity:0.65;border-style:dashed;}
@@ -306,6 +305,30 @@
             .bb-prc{display:flex;align-items:baseline;gap:8px;margin-top:auto;}
             .bb-sp{font-size:16px;font-weight:800;color:#0f172a;}
             #bb-mrp{font-size:12px;color:#94a3b8;text-decoration:line-through;}
+
+            /* Responsive 3-Column Mobile Layout */
+            @media(max-width:600px){
+                .bb-m-top{padding:10px 10px;gap:8px;}
+                .bb-m-ctrl{grid-template-columns:1fr 1fr;gap:6px;}
+                .bb-m-ctrl input#bb-q{grid-column:span 2;}
+                #bb-brand-wrap{grid-column:span 2;}
+                .bb-m-ctrl input,.bb-m-ctrl select,.bb-dd-btn,.bb-oos-toggle{padding:7px 8px;font-size:11.5px;}
+                .bb-oos-toggle{grid-column:span 2;justify-content:center;}
+                .bb-m-body{padding:8px 5px;}
+                .bb-grid{grid-template-columns:repeat(3, 1fr) !important;gap:5px !important;}
+                .bb-card{padding:5px 3px !important;border-radius:8px !important;}
+                .bb-img-wrap{height:75px !important;margin-bottom:4px !important;border-radius:6px !important;}
+                .bb-bdg{top:3px !important;left:3px !important;padding:2px 3px !important;min-width:24px !important;border-radius:4px !important;}
+                .bb-bdg-val{font-size:10px !important;}
+                .bb-bdg-txt{font-size:6.5px !important;}
+                .bb-unit{top:3px !important;right:3px !important;font-size:8px !important;padding:1px 3px !important;border-radius:3px !important;}
+                .bb-oos{top:22px !important;left:3px !important;font-size:7px !important;padding:1px 2px !important;}
+                .bb-brand{font-size:8.5px !important;margin-bottom:2px !important;}
+                .bb-ttl{font-size:9.5px !important;line-height:1.2 !important;min-height:23px !important;margin-bottom:3px !important;}
+                .bb-prc{gap:3px !important;}
+                .bb-sp{font-size:11.5px !important;}
+                #bb-mrp{font-size:9px !important;}
+            }
         `;
         document.head.appendChild(s);
     };
@@ -323,22 +346,21 @@
                     <button id="bb-cls">X</button>
                 </div>
                 <div class="bb-tb">
-                    <span id="bb-lbl">Pick 1 Category or Fetch All</span>
+                    <span id="bb-lbl">Pick up to 2 Categories</span>
                     <div>
                         <button id="bb-none">Clear</button>
                     </div>
                 </div>
                 <div class="bb-list" id="bb-list"></div>
                 <div class="bb-st-wrap">
-                    <div class="bb-st" id="bb-st">Select 1 category or Fetch All (2 pages each)</div>
+                    <div class="bb-st" id="bb-st">Select up to 2 categories (2 pages each)</div>
                     <div class="bb-pbar-bg" id="bb-pbar-bg">
                         <div class="bb-pbar-fill" id="bb-pbar-fill"></div>
                     </div>
                 </div>
                 <div class="bb-acts">
                     <div class="bb-row" id="bb-btn-row">
-                        <button id="bb-f" class="bb-btn bb-btn-f" disabled>Fetch Selected</button>
-                        <button id="bb-a" class="bb-btn bb-btn-a">Fetch All (20)</button>
+                        <button id="bb-f" class="bb-btn bb-btn-f" style="width:100%" disabled>Fetch Selected</button>
                     </div>
                     <button id="bb-s" class="bb-btn bb-btn-s">Stop & View Loaded Deals</button>
                     <button id="bb-m-btn" class="bb-btn bb-btn-m">View Deals Grid ></button>
@@ -362,6 +384,11 @@
                 <div class="bb-m-ctrl">
                     <input type="text" id="bb-q" placeholder="Search product name...">
                     <select id="bb-fc"><option value="all">All Categories</option></select>
+                    <select id="bb-sort">
+                        <option value="disc-desc">Discount: High to Low</option>
+                        <option value="price-asc">Price: Low to High</option>
+                        <option value="price-desc">Price: High to Low</option>
+                    </select>
                     <div class="bb-dd-wrap" id="bb-brand-wrap">
                         <button class="bb-dd-btn" id="bb-brand-btn" type="button">
                             <span id="bb-brand-lbl">All Brands</span>
@@ -399,7 +426,6 @@
 
         const pop = document.getElementById('bb-pop');
         const fBtn = document.getElementById('bb-f');
-        const aBtn = document.getElementById('bb-a');
         const sBtn = document.getElementById('bb-s');
         const mBtn = document.getElementById('bb-m-btn');
         const lbl = document.getElementById('bb-lbl');
@@ -417,7 +443,7 @@
             const checked = document.querySelectorAll('.bb-cb:checked');
             const cnt = checked.length;
 
-            lbl.innerText = cnt > 0 ? `${cnt} Selected` : `Pick 1 Category or Fetch All`;
+            lbl.innerText = cnt > 0 ? `${cnt} of ${CFG.maxCats} Selected` : `Pick up to ${CFG.maxCats} Categories`;
 
             document.querySelectorAll('.bb-cb').forEach(cb => {
                 if (!cb.checked) {
@@ -431,7 +457,13 @@
 
             if (!isFetching) {
                 fBtn.disabled = cnt === 0;
-                fBtn.innerText = cnt > 0 ? `Fetch (${checked[0].parentElement.querySelector('span').innerText})` : 'Fetch Selected';
+                if (cnt === 0) {
+                    fBtn.innerText = 'Fetch Selected';
+                } else if (cnt === 1) {
+                    fBtn.innerText = `Fetch (${checked[0].parentElement.querySelector('span').innerText})`;
+                } else {
+                    fBtn.innerText = `Fetch (${cnt} Categories)`;
+                }
             }
         };
 
@@ -459,7 +491,6 @@
                 sBtn.style.display = 'none';
                 pbarBg.style.display = 'none';
                 fBtn.disabled = document.querySelectorAll('.bb-cb:checked').length === 0;
-                aBtn.disabled = false;
             }
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.disabled = busy; });
         };
@@ -517,13 +548,13 @@
             }, 5000);
         };
 
-        const runFetch = async (fetchAll = false) => {
+        const runFetch = async () => {
             if (isFetching) return;
             abortScan = false;
             failedQueue = [];
             sBtn.innerText = 'Stop & View Loaded Deals';
 
-            const targets = fetchAll ? CATS : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => CATS.find(x => x.slug === cb.value)).filter(Boolean);
+            const targets = Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => CATS.find(x => x.slug === cb.value)).filter(Boolean);
             if (!targets.length) return;
 
             setBusy(true, `Starting Pass 1 for ${targets.length} categories...`, 0);
@@ -573,8 +604,7 @@
             }
         };
 
-        fBtn.onclick = () => runFetch(false);
-        aBtn.onclick = () => runFetch(true);
+        fBtn.onclick = () => runFetch();
 
         const bBtn = document.getElementById('bb-brand-btn');
         const bMenu = document.getElementById('bb-brand-menu');
@@ -697,7 +727,14 @@
                 return matchQ && matchC && matchB && matchOOS;
             });
 
-            filtered.sort((a, b) => b.disc - a.disc);
+            const sortVal = document.getElementById('bb-sort')?.value || 'disc-desc';
+            if (sortVal === 'price-asc') {
+                filtered.sort((a, b) => a.sp - b.sp);
+            } else if (sortVal === 'price-desc') {
+                filtered.sort((a, b) => b.sp - a.sp);
+            } else {
+                filtered.sort((a, b) => b.disc - a.disc);
+            }
 
             const oosCount = prods.filter(p => p.isOutOfStock).length;
             const statusSuffix = !showOOS && oosCount > 0 ? ` (${oosCount} Out of Stock hidden)` : '';
@@ -723,6 +760,7 @@
         document.getElementById('bb-m-cls').onclick = () => { m.style.display = 'none'; };
         document.getElementById('bb-q').oninput = renderModal;
         document.getElementById('bb-fc').onchange = renderModal;
+        document.getElementById('bb-sort').onchange = renderModal;
         document.getElementById('bb-toggle-oos').onchange = renderModal;
     };
 
