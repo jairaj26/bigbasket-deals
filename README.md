@@ -34,14 +34,41 @@ This tool runs **directly inside your own authenticated browser session** on [bi
 2. Drag the green **`🛒 BB Deals`** button to your Bookmarks / Favorites bar (`Ctrl/Cmd + Shift + B`).
 3. *(Pro-tip: If you use Chrome, Edge, or Safari, bookmarks auto-sync to your mobile phone when signed into your account!)*
 
-### 📱 Method 2: Mobile (Direct Import)
-1. Open **`https://jairaj26.github.io/bigbasket-deals/`** on your phone.
-2. Tap **`📥 Download Mobile Bookmark (.html)`**.
-3. Open your mobile browser's **Bookmarks** $\rightarrow$ tap **Import** $\rightarrow$ select the downloaded file!
+### 📱 Method 2: Mobile (Copy & Paste as Bookmark)
 
-### 🔧 Method 3: Manual Bookmark Creation
-1. Create a new bookmark in your browser with any name (e.g. `BB Deals`).
-2. Copy the entire code from [`bookmarklet.txt`](bookmarklet.txt).
+Most mobile browsers (Chrome, Safari, Edge, Samsung Internet, Brave) do not support importing bookmark files. Setting it up on your phone takes less than 30 seconds using the lightweight script below:
+
+#### 1. Copy this Mobile Script:
+```javascript
+javascript:(function(){if(window.__BB_SNIPER__){const p=document.getElementById('bb-pop');if(p)p.style.display=p.style.display==='none'?'flex':'none';return;}const s=document.createElement('script');s.src='https://jairaj26.github.io/bigbasket-deals/bb_deal_finder.min.js?t='+Date.now();s.onerror=function(){const f=document.createElement('script');f.src='https://cdn.jsdelivr.net/gh/jairaj26/bigbasket-deals@main/bb_deal_finder.min.js?t='+Date.now();document.body.appendChild(f);};document.body.appendChild(s);})();
+```
+
+*(You can also copy it with a single tap from the **[1-Click Installer Webpage](https://jairaj26.github.io/bigbasket-deals/)**).*
+
+#### 2. Save it as a Bookmark in your Mobile Browser:
+- **Chrome / Brave / Edge (Android & iOS):**
+  1. Bookmark any webpage (tap `⋮` menu &rarr; tap the **⭐ Star**).
+  2. Tap **Edit Bookmark** at the bottom (or open Bookmarks &rarr; tap `⋮` next to the bookmark &rarr; **Edit**).
+  3. Change the **Name** to: `BB Deals`.
+  4. In the **URL / Address** field: Erase everything and **paste** the copied script.
+  5. Tap **Save**.
+
+- **Safari (iPhone / iPad):**
+  1. Bookmark this page (tap the Share icon &rarr; **Add Bookmark**).
+  2. Open Bookmarks (book icon) &rarr; tap **Edit** (bottom-right) &rarr; tap the bookmark you just created.
+  3. Rename it to `BB Deals`.
+  4. Erase the URL and **paste** the copied script. Tap **Done**.
+
+#### 3. Run on BigBasket:
+1. Open [bigbasket.com](https://www.bigbasket.com).
+2. Tap the browser address bar, type **`BB Deals`**, and tap the bookmark suggestion (or open Bookmarks and tap **BB Deals**).
+3. The green **BB Deals** button will instantly appear!
+
+> 💡 **Auto-Updating:** Because this script loads directly from GitHub, your bookmark will always run the newest version automatically without needing manual updates!
+
+### 🔧 Method 3: Desktop Standalone Bookmark (Offline / No CDN)
+1. Create a new bookmark on your desktop browser.
+2. Copy the full standalone code from [`bookmarklet.txt`](bookmarklet.txt).
 3. Paste it into the bookmark's **URL / Address** field and save.
 
 ### 🐒 Method 4: Userscript (Tampermonkey / Violentmonkey)

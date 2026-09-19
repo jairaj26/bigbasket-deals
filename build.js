@@ -40,7 +40,12 @@ const bookmarklet = 'javascript:' + code;
 
 fs.writeFileSync(path.join(__dirname, 'bookmarklet.txt'), bookmarklet, 'utf8');
 fs.writeFileSync(path.join(__dirname, 'bb_deal_finder.min.js'), code, 'utf8');
+
+const mobileLoader = "javascript:(function(){if(window.__BB_SNIPER__){const p=document.getElementById('bb-pop');if(p)p.style.display=p.style.display==='none'?'flex':'none';return;}const s=document.createElement('script');s.src='https://jairaj26.github.io/bigbasket-deals/bb_deal_finder.min.js?t='+Date.now();s.onerror=function(){const f=document.createElement('script');f.src='https://cdn.jsdelivr.net/gh/jairaj26/bigbasket-deals@main/bb_deal_finder.min.js?t='+Date.now();document.body.appendChild(f);};document.body.appendChild(s);})();";
+fs.writeFileSync(path.join(__dirname, 'mobile_bookmarklet.txt'), mobileLoader, 'utf8');
+
 console.log('Final Bookmarklet Size:', bookmarklet.length, 'characters (~' + (bookmarklet.length / 1024).toFixed(2) + ' KB)');
+console.log('Mobile Loader Size:', mobileLoader.length, 'characters');
 
 // Update index.html cleanly
 const indexPath = path.join(__dirname, 'index.html');

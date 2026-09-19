@@ -1,6 +1,7 @@
 # Scratch and temporary files
 *.txt
 !bookmarklet.txt
+!mobile_bookmarklet.txt
 .system_generated/
 *.log
 scratch/
