@@ -47,6 +47,26 @@ fs.writeFileSync(path.join(__dirname, 'mobile_bookmarklet.txt'), mobileLoader, '
 console.log('Final Bookmarklet Size:', bookmarklet.length, 'characters (~' + (bookmarklet.length / 1024).toFixed(2) + ' KB)');
 console.log('Mobile Loader Size:', mobileLoader.length, 'characters');
 
+// Generate self-contained Tampermonkey Userscript
+const rawSource = fs.readFileSync(srcPath, 'utf8');
+const userScriptHeader = `// ==UserScript==
+// @name         BigBasket Deal Sniper
+// @namespace    https://github.com/jairaj26/bigbasket-deals
+// @version      1.2
+// @description  Find flash deals on BigBasket across categories
+// @author       jairaj26
+// @match        *://*.bigbasket.com/*
+// @updateURL    https://raw.githubusercontent.com/jairaj26/bigbasket-deals/main/bb_deal_finder.user.js
+// @downloadURL  https://raw.githubusercontent.com/jairaj26/bigbasket-deals/main/bb_deal_finder.user.js
+// @run-at       document-end
+// @grant        none
+// ==/UserScript==
+
+`;
+
+fs.writeFileSync(path.join(__dirname, 'bb_deal_finder.user.js'), userScriptHeader + rawSource, 'utf8');
+console.log('bb_deal_finder.user.js generated cleanly (self-contained, offline-ready)');
+
 // Update index.html cleanly
 const indexPath = path.join(__dirname, 'index.html');
 if (fs.existsSync(indexPath)) {

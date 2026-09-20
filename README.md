@@ -14,7 +14,8 @@ This tool runs **directly inside your own authenticated browser session** on [bi
 
 ## ✨ Features
 
-- **⚡ Fast Category Sniping:** Select up to 2 categories at a time for fast, targeted scanning without throttling.
+- **⚡ Fast Category Sniping & Fetch All:** Select specific categories for instant results or hit **Fetch All (20)** to scan the entire catalog with automatic 429 rate-limit recovery.
+- **⏰ 12:00 AM Midnight Auto-Sniper:** Automated Windows Task Scheduler launcher that automatically opens Microsoft Edge at midnight, runs the scan, opens the deals grid, and rings an audio chime.
 - **📱 Responsive 3-Column Mobile Grid:** Designed specifically for mobile screens with a 3-items-per-row card layout, compact badges, and high product density.
 - **🚫 Hide Out of Stock by Default:** Out-of-stock items are hidden automatically so you only browse available products. Easily toggle them back on with one tap.
 - **📊 3 Smart Sort Modes:**
@@ -24,6 +25,41 @@ This tool runs **directly inside your own authenticated browser session** on [bi
 - **⚖️ Unit Pricing Intelligence:** Automatically standardizes package weights & volumes (`Rs./100g`, `Rs./kg`, `Rs./100ml`, `Rs./L`, `Rs./pc`) so you instantly spot true value.
 - **🔍 Instant Filter & Search:** Real-time search by product name and multi-select brand filtering.
 - **🔗 Direct Product Links:** Click any product card to view it directly on BigBasket.
+
+---
+
+## ⏰ 12:00 AM Midnight Auto-Sniper Setup (Edge + Windows)
+
+BigBasket frequently updates discounts and releases flash deals at 12:00 AM (midnight). You can automate Edge to open and scan automatically:
+
+### 1. Install Tampermonkey in Microsoft Edge
+1. Add the [Tampermonkey Extension](https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd) to Edge.
+2. Click the Tampermonkey icon &rarr; **Create a new script**.
+3. Paste the contents of [`bb_deal_finder.user.js`](bb_deal_finder.user.js) and save (`Ctrl+S`).
+
+### 2. Enable Midnight Automation in Windows
+Run the launcher in this repository to register with **Windows Task Scheduler**:
+
+```bash
+# Register daily 12:00:15 AM task (runs silently with pythonw, zero RAM)
+python bb_sniper.py --install-task
+
+# Check scheduled status & next run time
+python bb_sniper.py --status-task
+
+# Test launch in Edge right now
+python bb_sniper.py --now
+
+# Remove scheduled task anytime
+python bb_sniper.py --remove-task
+```
+
+When midnight arrives:
+1. Windows wakes Edge to `https://www.bigbasket.com/?bb_auto=all`.
+2. A Windows toast notification confirms: *"BigBasket Deal Sniper Activated"*.
+3. Tampermonkey automatically runs **Fetch All (20)** across all categories.
+4. If BigBasket rate-limits any page (429), it automatically defers and recovers it smoothly in the background.
+5. The Deals Explorer grid pops open with your deals, accompanied by an audio chime alert!
 
 ---
 
@@ -76,14 +112,13 @@ javascript:(function(){if(window.__BB_SNIPER__){const p=document.getElementById(
 
 ---
 
-## 🚀 How to Use
+## 🚀 How to Use Manually
 
 1. Go to [bigbasket.com](https://www.bigbasket.com) in your browser.
-2. Tap / click your **`BB Deals`** bookmark.
+2. Tap / click your **`BB Deals`** bookmark or open via Tampermonkey.
 3. The green **BB Deals** button appears at the bottom-right of the page. Tap it to open the category picker.
-4. Select up to **2 categories** (e.g., *Snacks & Branded Foods*, *Detergents & Dishwash*).
-5. Tap **Fetch Selected**.
-6. The Deals Explorer grid opens automatically with your deals sorted by highest discount!
+4. Select up to **2 categories** and tap **Fetch Selected**, or tap **Fetch All (20)** to scan all categories.
+5. The Deals Explorer grid opens automatically with your deals sorted by highest discount!
 
 ---
 
@@ -96,3 +131,4 @@ node build.js
 ```
 
 This runs a syntax check, strips comments and whitespace, regenerates `bookmarklet.txt` and `bb_deal_finder.min.js`, and syncs `index.html`.
+

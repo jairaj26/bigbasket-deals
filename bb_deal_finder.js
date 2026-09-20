@@ -1,7 +1,10 @@
 (function () {
     'use strict';
 
+    console.log('[BB Sniper] Script loaded! URL:', window.location.href);
+
     if (window.__BB_SNIPER__) {
+        console.log('[BB Sniper] Instance already running. Toggling UI.');
         const p = document.getElementById('bb-pop');
         if (p) p.style.display = p.style.display === 'none' ? 'flex' : 'none';
         return;
@@ -59,6 +62,36 @@
     let selectedBrands = new Set();
 
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    const playChime = () => {
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContext) return;
+            const ctx = new AudioContext();
+            const now = ctx.currentTime;
+            const osc1 = ctx.createOscillator();
+            const gain1 = ctx.createGain();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(587.33, now); // D5
+            gain1.gain.setValueAtTime(0.12, now);
+            gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+            osc1.connect(gain1);
+            gain1.connect(ctx.destination);
+            osc1.start(now);
+            osc1.stop(now + 0.35);
+
+            const osc2 = ctx.createOscillator();
+            const gain2 = ctx.createGain();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(880, now + 0.15); // A5
+            gain2.gain.setValueAtTime(0.12, now + 0.15);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+            osc2.connect(gain2);
+            gain2.connect(ctx.destination);
+            osc2.start(now + 0.15);
+            osc2.stop(now + 0.55);
+        } catch (_) {}
+    };
 
     const fetchJSON = async (url, retries = 1, delay = 1500) => {
         for (let attempt = 0; attempt <= retries; attempt++) {
@@ -334,6 +367,12 @@
     };
 
     const buildUI = () => {
+        if (!document.body) {
+            console.log('[BB Sniper] document.body not ready yet, waiting for DOMContentLoaded...');
+            window.addEventListener('DOMContentLoaded', buildUI, { once: true });
+            return;
+        }
+
         injectCSS();
         if (document.getElementById('bb-wrap')) return;
 
@@ -346,21 +385,22 @@
                     <button id="bb-cls">X</button>
                 </div>
                 <div class="bb-tb">
-                    <span id="bb-lbl">Pick up to 2 Categories</span>
+                    <span id="bb-lbl">Pick Categories or Fetch All</span>
                     <div>
                         <button id="bb-none">Clear</button>
                     </div>
                 </div>
                 <div class="bb-list" id="bb-list"></div>
                 <div class="bb-st-wrap">
-                    <div class="bb-st" id="bb-st">Select up to 2 categories (2 pages each)</div>
+                    <div class="bb-st" id="bb-st">Select up to 2 categories or Fetch All (20)</div>
                     <div class="bb-pbar-bg" id="bb-pbar-bg">
                         <div class="bb-pbar-fill" id="bb-pbar-fill"></div>
                     </div>
                 </div>
                 <div class="bb-acts">
                     <div class="bb-row" id="bb-btn-row">
-                        <button id="bb-f" class="bb-btn bb-btn-f" style="width:100%" disabled>Fetch Selected</button>
+                        <button id="bb-f" class="bb-btn bb-btn-f" disabled>Fetch Selected</button>
+                        <button id="bb-a" class="bb-btn bb-btn-a">Fetch All (20)</button>
                     </div>
                     <button id="bb-s" class="bb-btn bb-btn-s">Stop & View Loaded Deals</button>
                     <button id="bb-m-btn" class="bb-btn bb-btn-m">View Deals Grid ></button>
@@ -426,6 +466,7 @@
 
         const pop = document.getElementById('bb-pop');
         const fBtn = document.getElementById('bb-f');
+        const aBtn = document.getElementById('bb-a');
         const sBtn = document.getElementById('bb-s');
         const mBtn = document.getElementById('bb-m-btn');
         const lbl = document.getElementById('bb-lbl');
@@ -443,7 +484,7 @@
             const checked = document.querySelectorAll('.bb-cb:checked');
             const cnt = checked.length;
 
-            lbl.innerText = cnt > 0 ? `${cnt} of ${CFG.maxCats} Selected` : `Pick up to ${CFG.maxCats} Categories`;
+            lbl.innerText = cnt > 0 ? `${cnt} of ${CFG.maxCats} Selected` : `Pick Categories or Fetch All`;
 
             document.querySelectorAll('.bb-cb').forEach(cb => {
                 if (!cb.checked) {
@@ -464,6 +505,7 @@
                 } else {
                     fBtn.innerText = `Fetch (${cnt} Categories)`;
                 }
+                if (aBtn) aBtn.disabled = false;
             }
         };
 
@@ -491,8 +533,10 @@
                 sBtn.style.display = 'none';
                 pbarBg.style.display = 'none';
                 fBtn.disabled = document.querySelectorAll('.bb-cb:checked').length === 0;
+                if (aBtn) aBtn.disabled = false;
             }
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.disabled = busy; });
+            if (aBtn) aBtn.disabled = busy;
         };
 
         sBtn.onclick = () => {
@@ -548,13 +592,15 @@
             }, 5000);
         };
 
-        const runFetch = async () => {
+        const runFetch = async (fetchAll = false) => {
             if (isFetching) return;
             abortScan = false;
             failedQueue = [];
             sBtn.innerText = 'Stop & View Loaded Deals';
 
-            const targets = Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => CATS.find(x => x.slug === cb.value)).filter(Boolean);
+            const targets = fetchAll
+                ? CATS
+                : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => CATS.find(x => x.slug === cb.value)).filter(Boolean);
             if (!targets.length) return;
 
             setBusy(true, `Starting Pass 1 for ${targets.length} categories...`, 0);
@@ -592,11 +638,13 @@
 
             fBtn.disabled = true;
             fBtn.innerText = 'Fetch Selected';
+            if (aBtn) aBtn.disabled = false;
 
             if (prods.length > 0) {
                 mBtn.style.display = 'block';
                 mBtn.innerText = `View ${prods.length} Deals Grid >`;
                 openModal();
+                playChime();
             }
 
             if (failedQueue.length > 0 && !abortScan) {
@@ -604,7 +652,8 @@
             }
         };
 
-        fBtn.onclick = () => runFetch();
+        fBtn.onclick = () => runFetch(false);
+        if (aBtn) aBtn.onclick = () => runFetch(true);
 
         const bBtn = document.getElementById('bb-brand-btn');
         const bMenu = document.getElementById('bb-brand-menu');
@@ -762,7 +811,41 @@
         document.getElementById('bb-fc').onchange = renderModal;
         document.getElementById('bb-sort').onchange = renderModal;
         document.getElementById('bb-toggle-oos').onchange = renderModal;
+
+        const checkAutoRun = () => {
+            try {
+                const href = window.location.href;
+                const url = new URL(href);
+                const autoParam = url.searchParams.get('bb_auto');
+                console.log('[BB Sniper] Checking auto-run flag...', { href, autoParam });
+
+                if (autoParam === 'all' || autoParam === '1' || autoParam === 'true' || href.includes('bb_auto=')) {
+                    console.log('[BB Sniper] Auto-run detected! Scheduling Fetch All in 1.5s...');
+
+                    try {
+                        url.searchParams.delete('bb_auto');
+                        const cleanUrl = url.pathname + (url.search ? url.search : '') + (url.hash || '');
+                        window.history.replaceState({}, document.title, cleanUrl);
+                    } catch (_) {}
+
+                    setTimeout(() => {
+                        const p = document.getElementById('bb-pop');
+                        if (p) p.style.display = 'flex';
+                        console.log('[BB Sniper] Auto-run: Starting Fetch All across 20 categories now!');
+                        runFetch(true);
+                    }, 1500);
+                }
+            } catch (err) {
+                console.error('[BB Sniper] Auto-run error:', err);
+            }
+        };
+
+        checkAutoRun();
     };
 
-    buildUI();
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', buildUI, { once: true });
+    } else {
+        buildUI();
+    }
 })();
