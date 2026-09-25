@@ -48,34 +48,49 @@ Tampermonkey will automatically open an install screen. Click the green **"Insta
 
 ---
 
-### ⏰ Optional: 12:00 AM Midnight Auto-Sniper Setup
+### ⏰ Optional: Automated Multi-Schedule Deal Sniper (4 Times Daily)
 
-BigBasket updates prices and drops flash deals at 12:00 AM (midnight). You can schedule Windows to automatically launch Edge, run **Fetch All (20)**, and chime when deals are ready:
+BigBasket refreshes inventories and drops flash sales multiple times throughout the day. You can schedule Windows to automatically launch Edge, dock as a **right-side vertical sidebar**, run **Fetch All (20)**, and chime when deals are ready:
 
-#### Option A: Windows Task Scheduler (1-Line Command, No Python Required)
-Open **PowerShell** as Administrator and run this single command:
+#### 🕒 Configured Daily Scan Times
+* **12:00:15 AM** &mdash; Midnight daily reset & instant flash deals
+* **04:00:15 PM** &mdash; Afternoon stock replenishments
+* **07:00:15 PM** &mdash; Evening flash sales & dinner hour discounts
+* **11:30:15 PM** &mdash; Pre-midnight clearance before the 12 AM reset
+
+#### 🖥️ Right-Side Sidebar Companion Layout
+Edge launches docked strictly as a **430px vertical sidebar on the right edge of your screen**.
+* **Keeps video players (PotPlayer, VLC, YouTube) and other apps completely unobstructed on the left 70%+ of your screen.**
+* Automatically renders the Deal Finder modal in an optimized mobile companion card view.
+
+#### 🌐 VPN Clock Drift Detection (HTTPS Atomic Time)
+When VPNs are active, standard Windows NTP time sync (UDP port 123) is blocked, causing PC clocks to slowly slip by 3–4 minutes per week. Deal Sniper includes an **HTTPS Port 443 atomic time sync** (unaffected by VPNs) to ensure automated scans trigger at the exact atomic second.
+
 ```powershell
-schtasks /create /tn "BigBasketMidnightSniper" /tr "cmd /c start msedge 'https://www.bigbasket.com/?bb_auto=all'" /sc daily /st 00:00:15 /f
-```
-
-#### Option B: Using Python Launcher
-If you cloned this repository, you can use the built-in scheduler:
-```powershell
-# Register daily 12:00:15 AM task (runs silently with pythonw, zero RAM)
+# 1. Register 4 daily schedules in Windows Task Scheduler (runs silently in background)
 python bb_sniper.py --install-task
 
-# Test launch in Edge right now
+# 2. Test launch in right sidebar immediately over current apps
 python bb_sniper.py --now
 
-# Check scheduled status & next run time
+# 3. Check status & upcoming trigger times
 python bb_sniper.py --status-task
 
-# Remove scheduled task anytime
+# 4. Check PC clock drift against atomic internet time (HTTPS - VPN proof)
+python bb_sniper.py --check-clock
+
+# 5. Sync Windows system clock to atomic internet time
+python bb_sniper.py --sync-clock
+
+# 6. Live terminal countdown daemon with auto drift compensation
+python bb_sniper.py --watch
+
+# 7. Remove scheduled task anytime
 python bb_sniper.py --remove-task
 ```
 
-When midnight arrives:
-1. Windows wakes Edge to `https://www.bigbasket.com/?bb_auto=all`.
+When any scheduled slot arrives:
+1. Windows wakes Edge docked to the right edge (430px) at `https://www.bigbasket.com/?bb_auto=all`.
 2. A Windows toast notification confirms: *"BigBasket Deal Sniper Activated"*.
 3. The script automatically runs **Fetch All (20)** across all categories.
 4. If rate-limited (429), it smoothly defers and recovers missing pages in the background.
