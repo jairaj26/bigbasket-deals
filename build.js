@@ -52,7 +52,7 @@ const rawSource = fs.readFileSync(srcPath, 'utf8');
 const userScriptHeader = `// ==UserScript==
 // @name         BigBasket Deal Sniper
 // @namespace    https://github.com/jairaj26/bigbasket-deals
-// @version      1.2
+// @version      1.3
 // @description  Find flash deals on BigBasket across categories
 // @author       jairaj26
 // @match        *://*.bigbasket.com/*

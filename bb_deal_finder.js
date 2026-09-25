@@ -15,7 +15,7 @@
 
     const CFG = {
         maxCats: 2,
-        pagesPerCat: 2,
+        pagesPerCat: 1,
         dMin: 800,
         dMax: 1100,
         hdrs: () => ({
@@ -238,24 +238,12 @@
         let res = [];
         const makeUrl = (page) => `https://www.bigbasket.com/listing-svc/v2/products?type=pc&slug=${cat.slug}&page=${page}&sort=dphtl`;
 
-        if (onProg) onProg(`Scanning ${cat.name} (P1)...`);
-        let data1 = await fetchJSON(makeUrl(1), 1, 1500);
-        if (data1) {
-            res.push(...handlePage(data1, cat.name));
+        if (onProg) onProg(`Scanning ${cat.name}...`);
+        let data = await fetchJSON(makeUrl(1), 1, 1500);
+        if (data) {
+            res.push(...handlePage(data, cat.name));
         } else {
             failedQueue.push({ cat, page: 1 });
-        }
-
-        if (abortScan) return res;
-
-        await sleep(Math.floor(Math.random() * (CFG.dMax - CFG.dMin + 1)) + CFG.dMin);
-
-        if (onProg) onProg(`Scanning ${cat.name} (P2)...`);
-        let data2 = await fetchJSON(makeUrl(2), 1, 1500);
-        if (data2) {
-            res.push(...handlePage(data2, cat.name));
-        } else {
-            failedQueue.push({ cat, page: 2 });
         }
 
         return res;
@@ -554,7 +542,7 @@
 
             while (failedQueue.length > 0) {
                 const item = failedQueue.shift();
-                syncBadge.innerHTML = `⚡ Syncing ${item.cat.name} (P${item.page}) in background...`;
+                syncBadge.innerHTML = `⚡ Syncing ${item.cat.name} in background...`;
 
                 await sleep(3000);
 
@@ -603,7 +591,7 @@
                 : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => CATS.find(x => x.slug === cb.value)).filter(Boolean);
             if (!targets.length) return;
 
-            setBusy(true, `Starting Pass 1 for ${targets.length} categories...`, 0);
+            setBusy(true, `Scanning ${targets.length} categories...`, 0);
             prods = [];
 
             for (let i = 0; i < targets.length; i++) {
