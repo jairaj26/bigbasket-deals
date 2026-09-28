@@ -50,7 +50,7 @@ Tampermonkey will automatically open an install screen. Click the green **"Insta
 
 ### ⏰ Optional: Automated Multi-Schedule Deal Sniper (4 Times Daily)
 
-BigBasket refreshes inventories and drops flash sales multiple times throughout the day. You can schedule Windows to automatically launch Edge, dock as a **right-side vertical sidebar**, run **Fetch All (20)**, and chime when deals are ready:
+BigBasket refreshes inventories and drops flash sales multiple times throughout the day. You can schedule Windows to automatically launch Edge, pin the window on top of current apps (without altering your window size), run **Fetch All (20)**, and chime when deals are ready:
 
 #### 🕒 Configured Daily Scan Times
 * **12:00:15 AM** &mdash; Midnight daily reset & instant flash deals
@@ -58,10 +58,19 @@ BigBasket refreshes inventories and drops flash sales multiple times throughout 
 * **07:00:15 PM** &mdash; Evening flash sales & dinner hour discounts
 * **11:30:15 PM** &mdash; Pre-midnight clearance before the 12 AM reset
 
-#### 🖥️ Right-Side Sidebar Companion Layout
-Edge launches docked strictly as a **430px vertical sidebar on the right edge of your screen**.
-* **Keeps video players (PotPlayer, VLC, YouTube) and other apps completely unobstructed on the left 70%+ of your screen.**
-* Automatically renders the Deal Finder modal in an optimized mobile companion card view.
+#### 📌 Pin-On-Top Window Management
+Edge launches and automatically pins **on top of all open desktop apps (such as PotPlayer, video players, games)**:
+* **Preserves your original window size and position**: Does not resize or move your browser.
+* Ensures the deal scanner stays visible while your background videos keep playing.
+
+#### 🛡️ Anti-429 Rate-Limit Protection (3 Batches of 7)
+BigBasket restricts rapid queries across categories. Deal Sniper eliminates 429 errors using smart prioritized batching:
+1. **Batch 1 (High-Priority Essentials - First 7)**: Food, Dairy, Oil, Beverages, Chocolates, Snacks, Bakery.
+2. **8-Second Anti-429 Pause**: Live countdown pause allowing BigBasket rate counters to cool down.
+3. **Batch 2 (Personal Care & Gourmet - Next 7)**: Dry Fruits, Skin care, Hair, Bath, Baby care, Detergents, Gourmet.
+4. **8-Second Anti-429 Pause**: Second cooldown pause.
+5. **Batch 3 (Remaining Categories)**: Diapers, Biscuits, Beauty, Household, Kitchen, Fruits & Veggies.
+6. **Maximum 7 Selectable**: The manual category picker is capped at **7 categories max per fetch** to prevent rate limits.
 
 #### 🌐 VPN Clock Drift Detection (HTTPS Atomic Time)
 When VPNs are active, standard Windows NTP time sync (UDP port 123) is blocked, causing PC clocks to slowly slip by 3–4 minutes per week. Deal Sniper includes an **HTTPS Port 443 atomic time sync** (unaffected by VPNs) to ensure automated scans trigger at the exact atomic second.
@@ -70,7 +79,7 @@ When VPNs are active, standard Windows NTP time sync (UDP port 123) is blocked, 
 # 1. Register 4 daily schedules in Windows Task Scheduler (runs silently in background)
 python bb_sniper.py --install-task
 
-# 2. Test launch in right sidebar immediately over current apps
+# 2. Test launch pinned on top immediately over current apps
 python bb_sniper.py --now
 
 # 3. Check status & upcoming trigger times
@@ -90,10 +99,10 @@ python bb_sniper.py --remove-task
 ```
 
 When any scheduled slot arrives:
-1. Windows wakes Edge docked to the right edge (430px) at `https://www.bigbasket.com/?bb_auto=all`.
+1. Windows wakes Edge pinned on top of open apps at `https://www.bigbasket.com/?bb_auto=all`.
 2. A Windows toast notification confirms: *"BigBasket Deal Sniper Activated"*.
-3. The script automatically runs **Fetch All (20)** across all categories.
-4. If rate-limited (429), it smoothly defers and recovers missing pages in the background.
+3. The script automatically runs **Fetch All (20)** across all categories in 3 prioritized batches.
+4. If any 429 occurs, it smoothly defers and recovers missing pages in the background.
 5. The Deals Explorer grid pops open with your deals, accompanied by an audio chime alert!
 
 ---

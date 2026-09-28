@@ -14,7 +14,7 @@
     const SESSION_TRACKER = (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('bb-' + Date.now()));
 
     const CFG = {
-        maxCats: 2,
+        maxCats: 7,
         pagesPerCat: 1,
         dMin: 800,
         dMax: 1100,
@@ -29,24 +29,29 @@
     };
 
     const CATS = [
-        "Baby Care|baby-care",
-        "Diapers & Wipes|diapers-wipes",
-        "Snacks & Branded Foods|snacks-branded-foods",
-        "Biscuits & Cookies|biscuits-cookies",
-        "Chocolates & Candies|chocolates-candies",
+        // --- Priority Batch 1: High-Priority Essentials (First 7 Categories) ---
         "Foodgrains, Oil & Masala|foodgrains-oil-masala",
-        "Edible Oils & Ghee|edible-oils-ghee",
-        "Dry Fruits|dry-fruits",
-        "Bakery, Cakes & Dairy|bakery-cakes-dairy",
         "Dairy|dairy",
+        "Edible Oils & Ghee|edible-oils-ghee",
         "Beverages (Tea/Coffee)|beverages",
-        "Beauty & Hygiene|beauty-hygiene",
+        "Chocolates & Candies|chocolates-candies",
+        "Snacks & Branded Foods|snacks-branded-foods",
+        "Bakery, Cakes & Dairy|bakery-cakes-dairy",
+
+        // --- Priority Batch 2: Personal Care & Gourmet (Next 7 Categories) ---
+        "Dry Fruits|dry-fruits",
         "Skin Care|skin-care",
         "Hair Care|hair-care",
         "Bath & Hand Wash|bath-hand-wash",
-        "Cleaning & Household|cleaning-household",
+        "Baby Care|baby-care",
         "Detergents & Dishwash|detergents-dishwash",
         "Gourmet & World Food|gourmet-world-food",
+
+        // --- Priority Batch 3: Remaining Categories (Last 6 Categories) ---
+        "Diapers & Wipes|diapers-wipes",
+        "Biscuits & Cookies|biscuits-cookies",
+        "Beauty & Hygiene|beauty-hygiene",
+        "Cleaning & Household|cleaning-household",
         "Kitchen & Home Needs|kitchen-garden-pets",
         "Fruits & Vegetables|fruits-vegetables"
     ].map(s => {
@@ -380,7 +385,7 @@
                 </div>
                 <div class="bb-list" id="bb-list"></div>
                 <div class="bb-st-wrap">
-                    <div class="bb-st" id="bb-st">Select up to 2 categories or Fetch All (20)</div>
+                    <div class="bb-st" id="bb-st">Select up to 7 categories or Fetch All (20)</div>
                     <div class="bb-pbar-bg" id="bb-pbar-bg">
                         <div class="bb-pbar-fill" id="bb-pbar-fill"></div>
                     </div>
@@ -472,7 +477,7 @@
             const checked = document.querySelectorAll('.bb-cb:checked');
             const cnt = checked.length;
 
-            lbl.innerText = cnt > 0 ? `${cnt} of ${CFG.maxCats} Selected` : `Pick Categories or Fetch All`;
+            lbl.innerText = cnt > 0 ? `${cnt} of ${CFG.maxCats} Selected${cnt >= CFG.maxCats ? ' (Max Limit)' : ''}` : `Pick Categories or Fetch All`;
 
             document.querySelectorAll('.bb-cb').forEach(cb => {
                 if (!cb.checked) {
@@ -607,8 +612,18 @@
                 const currPct = Math.round(((i + 1) / targets.length) * 100);
                 setBusy(true, `[${i + 1}/${targets.length}] ${c.name} done (${prods.length} total deals)`, currPct);
 
+                // Anti-429 Rate Limit Pause: After every 7 categories, pause 8s to prevent rate limits
                 if (i < targets.length - 1 && !abortScan) {
-                    await sleep(CFG.dMin);
+                    if ((i + 1) % 7 === 0) {
+                        const batchNum = Math.floor((i + 1) / 7);
+                        for (let sec = 8; sec > 0; sec--) {
+                            if (abortScan) break;
+                            setBusy(true, `⏸️ Batch ${batchNum} complete. Pausing ${sec}s to avoid rate limits...`, currPct);
+                            await sleep(1000);
+                        }
+                    } else {
+                        await sleep(CFG.dMin);
+                    }
                 }
             }
 

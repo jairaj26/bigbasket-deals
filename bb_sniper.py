@@ -1,16 +1,16 @@
 """
 BigBasket Deal Sniper Launcher & Multi-Schedule Automation
 ==========================================================
-Automatically launches Microsoft Edge in a right-hand sidebar layout
+Automatically launches Microsoft Edge pinned on top of open desktop apps
 at 4 daily times: 12:00 AM, 4:00 PM, 7:00 PM, and 11:30 PM.
 
 Includes:
-- Right-sidebar docking (430px wide, keeps PotPlayer/video unobstructed on the left)
+- Pin-On-Top Window Management (keeps Edge pinned over PotPlayer/other apps, preserving original window size)
 - HTTPS Atomic Internet Time drift detection & sync (fixes VPN UDP clock drift)
 - Multi-trigger Windows Task Scheduler registration with battery support
 
 Usage:
-  python bb_sniper.py --now             # Test launch in right sidebar immediately
+  python bb_sniper.py --now             # Test launch in Edge pinned on top immediately
   python bb_sniper.py --install-task    # Register 4 daily schedules in Windows Task Scheduler
   python bb_sniper.py --status-task     # Check scheduled task status and next run times
   python bb_sniper.py --remove-task     # Remove scheduled tasks
@@ -61,49 +61,27 @@ SCHEDULE_TIMES = [
     ("23:30:15", "11:30 PM (Pre-Midnight Clearance)"),
 ]
 
-DEFAULT_SIDEBAR_WIDTH = 430
-
 
 # ==============================================================================
-# 1. Screen & Window Management (Sidebar Placement & Z-Order)
+# 1. Window Management (Pin-On-Top over other apps, preserving original size)
 # ==============================================================================
 
-def get_sidebar_geometry(desired_width: int = DEFAULT_SIDEBAR_WIDTH):
+def pin_edge_on_top(timeout_seconds: float = 8.0):
     """
-    Detect screen work area (excluding Windows taskbar) and calculate
-    coordinates for a right-aligned vertical sidebar window.
-    """
-    if HAS_WIN32 and os.name == "nt":
-        rect = ctypes.wintypes.RECT()
-        # SPI_GETWORKAREA = 48
-        if ctypes.windll.user32.SystemParametersInfoW(48, 0, ctypes.byref(rect), 0):
-            screen_w = rect.right - rect.left
-            screen_h = rect.bottom - rect.top
-            w = min(desired_width, screen_w)
-            x = rect.right - w
-            y = rect.top
-            h = screen_h
-            return x, y, w, h
-    # Safe fallback if API unavailable (standard 1366x768 display)
-    return 936, 0, desired_width, 728
-
-
-def snap_edge_to_sidebar(timeout_seconds: float = 6.0):
-    """
-    Locates the Edge window, snaps it to the right-side vertical sidebar,
-    and brings it above PotPlayer/other windows without locking focus permanently.
+    Locates the Edge window, brings it to foreground, and pins it ON TOP of all other open apps (HWND_TOPMOST)
+    WITHOUT altering its position or size.
     """
     if not (HAS_WIN32 and os.name == "nt"):
         return False
 
     user32 = ctypes.windll.user32
-    x, y, w, h = get_sidebar_geometry()
 
     SW_RESTORE = 9
     HWND_TOPMOST = -1
-    HWND_NOTOPMOST = -2
+    SWP_NOSIZE = 0x0001
+    SWP_NOMOVE = 0x0002
     SWP_SHOWWINDOW = 0x0040
-    SWP_RELEASE_FLAGS = 0x0001 | 0x0002 | 0x0010  # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+    FLAGS = SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW
 
     start_time = time.time()
     while time.time() - start_time < timeout_seconds:
@@ -131,13 +109,10 @@ def snap_edge_to_sidebar(timeout_seconds: float = 6.0):
             target_hwnd, title = found_hwnds[0]
             # 1. Restore if minimized
             user32.ShowWindow(target_hwnd, SW_RESTORE)
-            # 2. Position as right sidebar and bring above other windows
-            user32.SetWindowPos(target_hwnd, HWND_TOPMOST, x, y, w, h, SWP_SHOWWINDOW)
+            # 2. Pin ON TOP of all other apps (HWND_TOPMOST) keeping exact size and position
+            user32.SetWindowPos(target_hwnd, HWND_TOPMOST, 0, 0, 0, 0, FLAGS)
             user32.SetForegroundWindow(target_hwnd)
-            # 3. Release topmost lock so PotPlayer / other apps can be clicked anytime
-            time.sleep(0.2)
-            user32.SetWindowPos(target_hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_RELEASE_FLAGS)
-            print(f"[OK] Positioned '{title[:35]}' as right sidebar ({x}, {y}, {w}, {h})")
+            print(f"[OK] Pinned '{title[:35]}' on top of other apps (original size preserved).")
             return True
 
     return False
@@ -313,36 +288,29 @@ def show_notification(title: str, message: str):
         print(f"[!] Notification error: {e}")
 
 
-def launch_edge(url: str = TARGET_URL, sidebar: bool = True):
-    """Launch Microsoft Edge in right-side sidebar mode."""
+def launch_edge(url: str = TARGET_URL, pin_top: bool = True):
+    """Launch Microsoft Edge and pin on top of all other apps without resizing."""
     edge_exe = get_edge_path()
-    x, y, w, h = get_sidebar_geometry()
 
     print(f"[*] Launching BigBasket Deal Sniper in Microsoft Edge...")
-    print(f"[*] Sidebar Mode : Right Edge (x={x}, y={y}, w={w}, h={h})")
+    print(f"[*] Window State : Pinned On Top (Original window size preserved)")
     print(f"[*] URL          : {url}")
 
     show_notification(
         "BigBasket Deal Sniper Activated",
-        "Scanning deals in right sidebar. PotPlayer/apps stay visible on the left!"
+        "Edge launched and pinned on top to scan BigBasket deals!"
     )
 
     if edge_exe:
         try:
-            # Launch in new window positioned at the right sidebar
-            cmd = [
-                edge_exe,
-                "--new-window",
-                f"--window-position={x},{y}",
-                f"--window-size={w},{h}",
-                url
-            ]
+            # Launch in new window without altering size or position
+            cmd = [edge_exe, "--new-window", url]
             subprocess.Popen(cmd)
             print(f"[OK] Launched Edge executable: {edge_exe}")
 
-            # Start background thread to snap and raise window over PotPlayer
-            if sidebar and HAS_WIN32:
-                threading.Thread(target=snap_edge_to_sidebar, args=(6.0,), daemon=True).start()
+            # Start background thread to pin the window on top of all open apps (e.g. PotPlayer)
+            if pin_top and HAS_WIN32:
+                threading.Thread(target=pin_edge_on_top, args=(8.0,), daemon=True).start()
             return True
         except Exception as e:
             print(f"[!] Failed to launch via msedge.exe: {e}")
@@ -351,8 +319,8 @@ def launch_edge(url: str = TARGET_URL, sidebar: bool = True):
     try:
         os.system(f'start microsoft-edge:"{url}"')
         print("[OK] Launched via microsoft-edge URI protocol.")
-        if sidebar and HAS_WIN32:
-            threading.Thread(target=snap_edge_to_sidebar, args=(6.0,), daemon=True).start()
+        if pin_top and HAS_WIN32:
+            threading.Thread(target=pin_edge_on_top, args=(8.0,), daemon=True).start()
         return True
     except Exception as e:
         print(f"[!] Protocol launch failed: {e}")
@@ -416,7 +384,7 @@ def install_task():
         )
         if res.returncode == 0:
             print(f"\n[OK] SUCCESS: Scheduled task '{TASK_NAME}' registered successfully!")
-            print("    Edge will automatically open docked as a right sidebar at:")
+            print("    Edge will automatically open pinned on top of open apps at:")
             for t_slot, desc in SCHEDULE_TIMES:
                 print(f"      * {desc}")
             print("\n    - Test immediately with : python bb_sniper.py --now")
@@ -553,9 +521,9 @@ def watch_mode():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="BigBasket Deal Sniper Launcher & Scheduler (Microsoft Edge Sidebar)"
+        description="BigBasket Deal Sniper Launcher & Scheduler (Microsoft Edge Pinned-On-Top)"
     )
-    parser.add_argument("--now", "--run-now", action="store_true", help="Launch BigBasket in right sidebar immediately")
+    parser.add_argument("--now", "--run-now", action="store_true", help="Launch BigBasket and pin Edge on top immediately")
     parser.add_argument("--install-task", action="store_true", help="Register Windows Task Scheduler job for 4 daily times")
     parser.add_argument("--remove-task", action="store_true", help="Remove Windows Task Scheduler jobs")
     parser.add_argument("--status-task", action="store_true", help="View scheduled task status and next run times")
@@ -585,7 +553,7 @@ def main():
         print("  BigBasket Deal Sniper Launcher")
         print("=" * 60)
         print("Available options:")
-        print("  1) python bb_sniper.py --now           -> Test launch in right sidebar immediately")
+        print("  1) python bb_sniper.py --now           -> Test launch in Edge pinned on top immediately")
         print("  2) python bb_sniper.py --install-task  -> Register 4 daily schedules in Windows Task Scheduler")
         print("  3) python bb_sniper.py --status-task   -> Check task status & upcoming trigger times")
         print("  4) python bb_sniper.py --check-clock   -> Check PC clock drift vs atomic internet time")
