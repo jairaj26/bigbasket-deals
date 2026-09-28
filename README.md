@@ -48,35 +48,38 @@ Tampermonkey will automatically open an install screen. Click the green **"Insta
 
 ---
 
-### ⏰ Optional: Automated Multi-Schedule Deal Sniper (4 Times Daily)
+### ⏰ Optional: Automated Hourly Deal Sniper (Runs Every Hour)
 
-BigBasket refreshes inventories and drops flash sales multiple times throughout the day. You can schedule Windows to automatically launch Edge, pin the window on top of current apps (without altering your window size), run **Fetch All (20)**, and chime when deals are ready:
+BigBasket refreshes inventories and drops flash sales throughout the day. You can schedule Windows to automatically launch Edge, pin the window on top of current apps (without altering your window size), run **Fetch All (20)**, and chime when deals are ready:
 
-#### 🕒 Configured Daily Scan Times
-* **12:00:15 AM** &mdash; Midnight daily reset & instant flash deals
-* **04:00:15 PM** &mdash; Afternoon stock replenishments
-* **07:00:15 PM** &mdash; Evening flash sales & dinner hour discounts
-* **11:30:15 PM** &mdash; Pre-midnight clearance before the 12 AM reset
+#### 🕒 Hourly Automated Schedule
+* **Runs Every 1 Hour Continuously** while your PC is on.
+* Automatically wakes Edge pinned on top, starts the scan, and presents fresh deals throughout the day.
 
 #### 📌 Pin-On-Top Window Management
 Edge launches and automatically pins **on top of all open desktop apps (such as PotPlayer, video players, games)**:
 * **Preserves your original window size and position**: Does not resize or move your browser.
 * Ensures the deal scanner stays visible while your background videos keep playing.
 
-#### 🛡️ Anti-429 Rate-Limit Protection (3 Batches of 7)
+#### ⚡ Instant Grid View + Live Background Loading
+* **Opens Immediately After Batch 1**: You don't have to wait for all 20 categories. The full Deals Explorer grid opens as soon as the first 7 priority categories finish!
+* **Live Background Stream**: Batches 2 and 3 continue loading in the background, smoothly inserting new deals, updating category filters, and adjusting brand counts in real time.
+* **Persistent Out of Stock Filter**: Out of stock items are displayed by default. If you uncheck "Show Out of Stock", your preference is saved and remembered for all future fetches.
+
+#### 🛡️ Anti-429 Rate-Limit Protection (3 Prioritized Batches)
 BigBasket restricts rapid queries across categories. Deal Sniper eliminates 429 errors using smart prioritized batching:
-1. **Batch 1 (High-Priority Essentials - First 7)**: Food, Dairy, Oil, Beverages, Chocolates, Snacks, Bakery.
+1. **Batch 1 (High-Priority Essentials - First 7)**: Foodgrains/Masala, Dairy, Edible Oils, Beverages, Chocolates, Snacks, Bakery. *(Grid opens immediately here!)*
 2. **8-Second Anti-429 Pause**: Live countdown pause allowing BigBasket rate counters to cool down.
-3. **Batch 2 (Personal Care & Gourmet - Next 7)**: Dry Fruits, Skin care, Hair, Bath, Baby care, Detergents, Gourmet.
+3. **Batch 2 (Personal Care & Biscuits - Next 7)**: Dry Fruits, Skin care, Hair care, Bath, Baby care, Detergents, Biscuits & Cookies.
 4. **8-Second Anti-429 Pause**: Second cooldown pause.
-5. **Batch 3 (Remaining Categories)**: Diapers, Biscuits, Beauty, Household, Kitchen, Fruits & Veggies.
+5. **Batch 3 (Gourmet & Remaining - Last 6)**: Gourmet & World Food, Diapers & Wipes, Beauty & Hygiene, Cleaning & Household, Kitchen, Fruits & Veggies.
 6. **Maximum 7 Selectable**: The manual category picker is capped at **7 categories max per fetch** to prevent rate limits.
 
 #### 🌐 VPN Clock Drift Detection (HTTPS Atomic Time)
 When VPNs are active, standard Windows NTP time sync (UDP port 123) is blocked, causing PC clocks to slowly slip by 3–4 minutes per week. Deal Sniper includes an **HTTPS Port 443 atomic time sync** (unaffected by VPNs) to ensure automated scans trigger at the exact atomic second.
 
 ```powershell
-# 1. Register 4 daily schedules in Windows Task Scheduler (runs silently in background)
+# 1. Register hourly schedule in Windows Task Scheduler (runs silently every 1 hour)
 python bb_sniper.py --install-task
 
 # 2. Test launch pinned on top immediately over current apps

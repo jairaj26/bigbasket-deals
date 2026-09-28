@@ -1,22 +1,22 @@
 """
-BigBasket Deal Sniper Launcher & Multi-Schedule Automation
-==========================================================
+BigBasket Deal Sniper Launcher & Hourly Automation
+==================================================
 Automatically launches Microsoft Edge pinned on top of open desktop apps
-at 4 daily times: 12:00 AM, 4:00 PM, 7:00 PM, and 11:30 PM.
+every 1 hour continuously while the PC is on.
 
 Includes:
 - Pin-On-Top Window Management (keeps Edge pinned over PotPlayer/other apps, preserving original window size)
+- Hourly Windows Task Scheduler registration with battery support (repeats every 1 hour)
 - HTTPS Atomic Internet Time drift detection & sync (fixes VPN UDP clock drift)
-- Multi-trigger Windows Task Scheduler registration with battery support
 
 Usage:
   python bb_sniper.py --now             # Test launch in Edge pinned on top immediately
-  python bb_sniper.py --install-task    # Register 4 daily schedules in Windows Task Scheduler
+  python bb_sniper.py --install-task    # Register hourly schedule in Windows Task Scheduler (Every 1 hour)
   python bb_sniper.py --status-task     # Check scheduled task status and next run times
   python bb_sniper.py --remove-task     # Remove scheduled tasks
   python bb_sniper.py --check-clock     # Check PC clock drift against atomic internet time
   python bb_sniper.py --sync-clock      # Sync Windows clock with atomic internet time (HTTPS)
-  python bb_sniper.py --watch           # Run terminal daemon with real-time countdown
+  python bb_sniper.py --watch           # Run terminal daemon with real-time hourly countdown
 """
 
 import sys
@@ -52,14 +52,6 @@ if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
 TASK_NAME = "BigBasketDealSniper"
 LEGACY_TASK_NAME = "BigBasketMidnightSniper"
 TARGET_URL = "https://www.bigbasket.com/?bb_auto=all"
-
-# 4 Daily Scan Times with a 15-second buffer for BigBasket database price updates
-SCHEDULE_TIMES = [
-    ("00:00:15", "12:00 AM (Midnight Reset & Flash Deals)"),
-    ("16:00:15", "04:00 PM (Afternoon Stock Refresh)"),
-    ("19:00:15", "07:00 PM (Evening Flash Deals)"),
-    ("23:30:15", "11:30 PM (Pre-Midnight Clearance)"),
-]
 
 
 # ==============================================================================
@@ -294,6 +286,7 @@ def launch_edge(url: str = TARGET_URL, pin_top: bool = True):
 
     print(f"[*] Launching BigBasket Deal Sniper in Microsoft Edge...")
     print(f"[*] Window State : Pinned On Top (Original window size preserved)")
+    print(f"[*] Schedule     : Hourly execution when PC is active")
     print(f"[*] URL          : {url}")
 
     show_notification(
@@ -338,11 +331,11 @@ def launch_edge(url: str = TARGET_URL, pin_top: bool = True):
 
 
 # ==============================================================================
-# 4. Windows Task Scheduler (4 Daily Triggers & Battery Support)
+# 4. Windows Task Scheduler (Hourly Triggers & Battery Support)
 # ==============================================================================
 
 def install_task():
-    """Register the 4 daily scan triggers in Windows Task Scheduler."""
+    """Register the hourly scan schedule in Windows Task Scheduler."""
     script_path = os.path.abspath(__file__)
 
     # Use pythonw.exe so execution runs silently with NO console popup window
@@ -351,42 +344,44 @@ def install_task():
     if not os.path.exists(pythonw_path):
         pythonw_path = sys.executable
 
-    action_arg = f'"{script_path}" --run-now'
+    action_cmd = f'"{pythonw_path}" "{script_path}" --run-now'
 
     # Clean up legacy task if present
     subprocess.run(["schtasks", "/delete", "/tn", LEGACY_TASK_NAME, "/f"], capture_output=True, check=False)
 
-    triggers_ps = ",\n        ".join([
-        f'$(New-ScheduledTaskTrigger -Daily -At "{t_slot}")'
-        for t_slot, _ in SCHEDULE_TIMES
-    ])
-
-    ps_script = f"""
-    $action = New-ScheduledTaskAction -Execute '{pythonw_path}' -Argument '{action_arg}'
-    $triggers = @(
-        {triggers_ps}
-    )
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1)
-    Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $action -Trigger $triggers -Settings $settings -Force
-    """
-
     print(f"[*] Registering scheduled task: {TASK_NAME}")
-    print("[*] 4 Daily Trigger Times configured:")
-    for t_slot, desc in SCHEDULE_TIMES:
-        print(f"    - {t_slot} : {desc}")
+    print("[*] Schedule: Every 1 Hour continuously while PC is on")
+    print(f"[*] Action: {action_cmd}")
+
+    cmd = [
+        "schtasks", "/create",
+        "/tn", TASK_NAME,
+        "/tr", action_cmd,
+        "/sc", "HOURLY",
+        "/mo", "1",
+        "/f"
+    ]
 
     try:
-        res = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script],
-            capture_output=True,
-            text=True,
-            check=False
-        )
+        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if res.returncode == 0:
+            # Enable battery operation for laptops
+            ps_battery = f"""
+            try {{
+                $task = Get-ScheduledTask -TaskName '{TASK_NAME}'
+                $task.Settings.DisallowStartIfOnBatteries = $false
+                $task.Settings.StopIfGoingOnBatteries = $false
+                $task.Settings.StartWhenAvailable = $true
+                $task | Set-ScheduledTask > $null
+            }} catch {{}}
+            """
+            subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_battery],
+                capture_output=True, check=False
+            )
+
             print(f"\n[OK] SUCCESS: Scheduled task '{TASK_NAME}' registered successfully!")
-            print("    Edge will automatically open pinned on top of open apps at:")
-            for t_slot, desc in SCHEDULE_TIMES:
-                print(f"      * {desc}")
+            print("    Edge will automatically open pinned on top every 1 hour while PC is on.")
             print("\n    - Test immediately with : python bb_sniper.py --now")
             print("    - Check status with     : python bb_sniper.py --status-task")
             print("    - Check clock sync with : python bb_sniper.py --check-clock")
@@ -417,59 +412,44 @@ def status_task():
         res = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if res.returncode == 0:
             print(f"[OK] Task '{TASK_NAME}' is currently ACTIVE.\n")
-            print("  Configured Daily Scan Slots:")
-            for t_slot, desc in SCHEDULE_TIMES:
-                print(f"    * {t_slot} -> {desc}")
-            print()
+            print("  Configured Schedule: Every 1 Hour (Hourly continuous while PC is active)\n")
             for line in res.stdout.splitlines():
                 line_str = line.strip()
                 if any(line_str.startswith(k) for k in [
-                    "TaskName:", "Status:", "Next Run Time:", "Last Run Time:", "Last Result:", "Schedule Type:"
+                    "TaskName:", "Status:", "Next Run Time:", "Last Run Time:", "Last Result:", "Schedule Type:", "Repeat:"
                 ]):
                     print(f"  {line_str}")
         else:
             print(f"[!] Task '{TASK_NAME}' is NOT registered.")
-            print("    Run 'python bb_sniper.py --install-task' to enable automated daily sniping.")
+            print("    Run 'python bb_sniper.py --install-task' to enable automated hourly sniping.")
     except Exception as e:
         print(f"[!] Error querying task: {e}")
 
 
 # ==============================================================================
-# 5. Live Terminal Watcher Mode (Atomic Internet Time Compensated)
+# 5. Live Terminal Watcher Mode (Hourly Atomic Internet Time Compensated)
 # ==============================================================================
 
 def get_next_run(drift_seconds: float = 0.0):
-    """Calculate the next upcoming scan slot, adjusting for clock drift."""
-    # Effective atomic time now
+    """Calculate the next upcoming top-of-the-hour scan slot, adjusting for clock drift."""
     effective_now = datetime.now() - timedelta(seconds=drift_seconds)
-    today = effective_now.date()
+    # Target is the 15-second mark of the upcoming hour
+    candidate_this_hour = effective_now.replace(minute=0, second=15, microsecond=0)
+    if effective_now < candidate_this_hour:
+        next_dt = candidate_this_hour
+    else:
+        next_dt = candidate_this_hour + timedelta(hours=1)
 
-    candidates = []
-    for t_str, desc in SCHEDULE_TIMES:
-        h, m, s = map(int, t_str.split(":"))
-        candidate_dt = datetime(today.year, today.month, today.day, h, m, s)
-        if candidate_dt > effective_now:
-            candidates.append((candidate_dt, desc))
-
-    if not candidates:
-        # Wrap around to tomorrow's first slot
-        first_h, first_m, first_s = map(int, SCHEDULE_TIMES[0][0].split(":"))
-        tomorrow = today + timedelta(days=1)
-        next_dt = datetime(tomorrow.year, tomorrow.month, tomorrow.day, first_h, first_m, first_s)
-        return next_dt, SCHEDULE_TIMES[0][1], drift_seconds
-
-    candidates.sort(key=lambda x: x[0])
-    return candidates[0][0], candidates[0][1], drift_seconds
+    desc = f"Hourly Deal Refresh ({next_dt.strftime('%I:%M %p')})"
+    return next_dt, desc, drift_seconds
 
 
 def watch_mode():
-    """Run an interactive console countdown timer with atomic drift compensation."""
+    """Run an interactive console countdown timer for hourly scans with atomic drift compensation."""
     print("=" * 65)
-    print("  BigBasket Deal Sniper - Live Terminal Watcher")
+    print("  BigBasket Deal Sniper - Hourly Live Terminal Watcher")
     print("=" * 65)
-    print("[*] 4 Daily Scan Times:")
-    for t_str, desc in SCHEDULE_TIMES:
-        print(f"    - {t_str} : {desc}")
+    print("[*] Schedule: Runs every 1 hour continuously while PC is active")
 
     print("\n[*] Checking atomic internet time to compensate for PC clock drift...")
     drift_seconds = 0.0
@@ -500,16 +480,16 @@ def watch_mode():
         total_seconds = int(diff.total_seconds())
 
         if total_seconds <= 1:
-            print(f"\n[!] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - TRIGGER TIME REACHED ({desc})!")
+            print(f"\n[!] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - HOURLY TRIGGER REACHED ({desc})!")
             launch_edge()
-            time.sleep(12)  # Avoid double-triggering within the same window
+            time.sleep(15)  # Avoid double-triggering within the same window
             continue
 
         hours, remainder = divmod(total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         sys.stdout.write(
-            f"\r[*] Next: {next_dt.strftime('%I:%M:%S %p')} ({desc[:25]}) | "
-            f"Countdown: {hours:02d}h {minutes:02d}m {seconds:02d}s "
+            f"\r[*] Next Run: {next_dt.strftime('%I:%M:%S %p')} | "
+            f"Countdown: {minutes:02d}m {seconds:02d}s "
         )
         sys.stdout.flush()
         time.sleep(1)
@@ -521,10 +501,10 @@ def watch_mode():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="BigBasket Deal Sniper Launcher & Scheduler (Microsoft Edge Pinned-On-Top)"
+        description="BigBasket Deal Sniper Launcher & Hourly Scheduler (Microsoft Edge Pinned-On-Top)"
     )
     parser.add_argument("--now", "--run-now", action="store_true", help="Launch BigBasket and pin Edge on top immediately")
-    parser.add_argument("--install-task", action="store_true", help="Register Windows Task Scheduler job for 4 daily times")
+    parser.add_argument("--install-task", action="store_true", help="Register Windows Task Scheduler job to run hourly")
     parser.add_argument("--remove-task", action="store_true", help="Remove Windows Task Scheduler jobs")
     parser.add_argument("--status-task", action="store_true", help="View scheduled task status and next run times")
     parser.add_argument("--check-clock", action="store_true", help="Check PC clock drift against atomic internet time (HTTPS)")
@@ -550,11 +530,11 @@ def main():
         watch_mode()
     else:
         print("=" * 60)
-        print("  BigBasket Deal Sniper Launcher")
+        print("  BigBasket Deal Sniper Launcher (Hourly Automation)")
         print("=" * 60)
         print("Available options:")
         print("  1) python bb_sniper.py --now           -> Test launch in Edge pinned on top immediately")
-        print("  2) python bb_sniper.py --install-task  -> Register 4 daily schedules in Windows Task Scheduler")
+        print("  2) python bb_sniper.py --install-task  -> Register hourly schedule in Windows Task Scheduler")
         print("  3) python bb_sniper.py --status-task   -> Check task status & upcoming trigger times")
         print("  4) python bb_sniper.py --check-clock   -> Check PC clock drift vs atomic internet time")
         print("  5) python bb_sniper.py --sync-clock    -> Sync Windows system clock via HTTPS")

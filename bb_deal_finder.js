@@ -38,18 +38,18 @@
         "Snacks & Branded Foods|snacks-branded-foods",
         "Bakery, Cakes & Dairy|bakery-cakes-dairy",
 
-        // --- Priority Batch 2: Personal Care & Gourmet (Next 7 Categories) ---
+        // --- Priority Batch 2: Personal Care & Biscuits (Next 7 Categories) ---
         "Dry Fruits|dry-fruits",
         "Skin Care|skin-care",
         "Hair Care|hair-care",
         "Bath & Hand Wash|bath-hand-wash",
         "Baby Care|baby-care",
         "Detergents & Dishwash|detergents-dishwash",
-        "Gourmet & World Food|gourmet-world-food",
-
-        // --- Priority Batch 3: Remaining Categories (Last 6 Categories) ---
-        "Diapers & Wipes|diapers-wipes",
         "Biscuits & Cookies|biscuits-cookies",
+
+        // --- Priority Batch 3: Gourmet & Remaining (Last 6 Categories) ---
+        "Gourmet & World Food|gourmet-world-food",
+        "Diapers & Wipes|diapers-wipes",
         "Beauty & Hygiene|beauty-hygiene",
         "Cleaning & Household|cleaning-household",
         "Kitchen & Home Needs|kitchen-garden-pets",
@@ -403,6 +403,12 @@
         `;
         document.body.appendChild(w);
 
+        let showOosInitial = true;
+        try {
+            const savedOos = localStorage.getItem('bb_show_oos');
+            showOosInitial = savedOos === null ? true : (savedOos === 'true');
+        } catch (_) {}
+
         const m = document.createElement('div');
         m.id = 'bb-modal';
         m.innerHTML = `
@@ -437,7 +443,7 @@
                         </div>
                     </div>
                     <label class="bb-oos-toggle">
-                        <input type="checkbox" id="bb-toggle-oos">
+                        <input type="checkbox" id="bb-toggle-oos" ${showOosInitial ? 'checked' : ''}>
                         <span>Show Out of Stock</span>
                     </label>
                 </div>
@@ -612,16 +618,50 @@
                 const currPct = Math.round(((i + 1) / targets.length) * 100);
                 setBusy(true, `[${i + 1}/${targets.length}] ${c.name} done (${prods.length} total deals)`, currPct);
 
+                // Deduplicate items gathered so far
+                const seenSoFar = new Set();
+                prods = prods.filter(p => {
+                    const key = `${p.id}-${p.cat}`;
+                    return seenSoFar.has(key) ? false : seenSoFar.add(key);
+                });
+
+                // User Requirement: Once Batch 1 (first 7 categories) is fetched, open the deals grid immediately!
+                if ((i + 1) === 7 && prods.length > 0) {
+                    mBtn.style.display = 'block';
+                    mBtn.innerText = `View ${prods.length} Deals Grid >`;
+                    if (m.style.display !== 'flex') {
+                        openModal();
+                    } else {
+                        refreshFiltersSmoothly();
+                        renderModal();
+                    }
+                    playChime();
+                } else if ((i + 1) > 7 && m.style.display === 'flex') {
+                    // Update the open grid in real time as Batch 2 and 3 deals arrive
+                    refreshFiltersSmoothly();
+                    renderModal();
+                }
+
                 // Anti-429 Rate Limit Pause: After every 7 categories, pause 8s to prevent rate limits
                 if (i < targets.length - 1 && !abortScan) {
                     if ((i + 1) % 7 === 0) {
                         const batchNum = Math.floor((i + 1) / 7);
+                        syncBadge.style.display = 'inline-flex';
+                        syncBadge.className = 'bb-sync-badge';
                         for (let sec = 8; sec > 0; sec--) {
                             if (abortScan) break;
-                            setBusy(true, `⏸️ Batch ${batchNum} complete. Pausing ${sec}s to avoid rate limits...`, currPct);
+                            const pauseMsg = `⏸️ Batch ${batchNum} complete (${prods.length} deals). Pausing ${sec}s to avoid rate limits...`;
+                            setBusy(true, pauseMsg, currPct);
+                            syncBadge.innerHTML = pauseMsg;
                             await sleep(1000);
                         }
+                        if (!abortScan) {
+                            syncBadge.innerHTML = `⚡ Resuming Batch ${batchNum + 1}...`;
+                        }
                     } else {
+                        if (m.style.display === 'flex' && syncBadge.style.display !== 'none') {
+                            syncBadge.innerHTML = `⚡ Scanning [${i + 1}/${targets.length}]: ${c.name} (${prods.length} deals)`;
+                        }
                         await sleep(CFG.dMin);
                     }
                 }
@@ -646,8 +686,21 @@
             if (prods.length > 0) {
                 mBtn.style.display = 'block';
                 mBtn.innerText = `View ${prods.length} Deals Grid >`;
-                openModal();
+                if (m.style.display !== 'flex') {
+                    openModal();
+                } else {
+                    refreshFiltersSmoothly();
+                    renderModal();
+                }
                 playChime();
+
+                syncBadge.style.display = 'inline-flex';
+                syncBadge.className = 'bb-sync-badge done';
+                syncBadge.innerHTML = `✓ All ${catsCount} Categories 100% Synced (${prods.length} deals)`;
+                setTimeout(() => {
+                    syncBadge.style.opacity = '0';
+                    setTimeout(() => { syncBadge.style.display = 'none'; syncBadge.style.opacity = '1'; }, 400);
+                }, 5000);
             }
 
             if (failedQueue.length > 0 && !abortScan) {
@@ -761,7 +814,7 @@
                 fc.innerHTML += `<option value="${c}">${c}</option>`;
             });
 
-            populateBrands(false);
+            populateBrands(selectedBrands.size > 0);
             m.style.display = 'flex';
             renderModal();
         };
@@ -769,7 +822,7 @@
         const renderModal = () => {
             const q = document.getElementById('bb-q').value.toLowerCase().trim();
             const c = document.getElementById('bb-fc').value;
-            const showOOS = document.getElementById('bb-toggle-oos')?.checked || false;
+            const showOOS = document.getElementById('bb-toggle-oos') ? document.getElementById('bb-toggle-oos').checked : true;
 
             let filtered = prods.filter(p => {
                 const matchQ = !q || p.name.toLowerCase().includes(q) || p.brand.toLowerCase().includes(q);
@@ -813,7 +866,13 @@
         document.getElementById('bb-q').oninput = renderModal;
         document.getElementById('bb-fc').onchange = renderModal;
         document.getElementById('bb-sort').onchange = renderModal;
-        document.getElementById('bb-toggle-oos').onchange = renderModal;
+        const oosEl = document.getElementById('bb-toggle-oos');
+        if (oosEl) {
+            oosEl.onchange = (e) => {
+                try { localStorage.setItem('bb_show_oos', e.target.checked ? 'true' : 'false'); } catch (_) {}
+                renderModal();
+            };
+        }
 
         const checkAutoRun = () => {
             try {
