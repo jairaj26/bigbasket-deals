@@ -67,13 +67,15 @@ Edge launches and automatically pins **on top of all open desktop apps (such as 
 * **Persistent Out of Stock Filter**: Out of stock items are displayed by default. If you uncheck "Show Out of Stock", your preference is saved and remembered for all future fetches.
 
 #### 🛡️ Anti-429 Rate-Limit Protection (3 Prioritized Batches)
-BigBasket restricts rapid queries across categories. Deal Sniper eliminates 429 errors using smart prioritized batching:
-1. **Batch 1 (High-Priority Essentials - First 7)**: Foodgrains/Masala, Dairy, Edible Oils, Beverages, Chocolates, Snacks, Bakery. *(Grid opens immediately here!)*
-2. **8-Second Anti-429 Pause**: Live countdown pause allowing BigBasket rate counters to cool down.
-3. **Batch 2 (Personal Care & Biscuits - Next 7)**: Dry Fruits, Skin care, Hair care, Bath, Baby care, Detergents, Biscuits & Cookies.
-4. **8-Second Anti-429 Pause**: Second cooldown pause.
-5. **Batch 3 (Gourmet & Remaining - Last 6)**: Gourmet & World Food, Diapers & Wipes, Beauty & Hygiene, Cleaning & Household, Kitchen, Fruits & Veggies.
-6. **Maximum 7 Selectable**: The manual category picker is capped at **7 categories max per fetch** to prevent rate limits.
+BigBasket restricts rapid sequential queries across categories. Deal Sniper eliminates 429 errors using smart prioritized batching and humanized pacing:
+1. **2.0–2.5s Delay with Jitter**: Paces requests realistically per category and rotates unique `x-tracker` tokens so token buckets replenish continuously.
+2. **Batch 1 (High-Priority Essentials - First 7)**: Foodgrains/Masala, Dairy, Edible Oils, Beverages, Chocolates, Snacks, Bakery. *(Grid opens immediately here!)*
+3. **10-Second Anti-429 Pause**: Live countdown pause allowing BigBasket rate counters to cool down.
+4. **Batch 2 (Personal Care & Biscuits - Next 7)**: Dry Fruits, Skin care, Hair care, Bath, Baby care, Detergents, Biscuits & Cookies.
+5. **10-Second Anti-429 Pause**: Second cooldown pause.
+6. **Batch 3 (Gourmet & Remaining - Last 6)**: Gourmet & World Food, Diapers & Wipes, Beauty & Hygiene, Cleaning & Household, Kitchen, Fruits & Veggies.
+7. **Adaptive Exponential Backoff**: If a 429 ever occurs, the script pauses with a live countdown (4s, 7s, 10s) and retries up to 3 times before background recovery.
+8. **Maximum 7 Selectable**: The manual category picker is capped at **7 categories max per fetch** to prevent accidental rate limits.
 
 #### 🌐 VPN Clock Drift Detection (HTTPS Atomic Time)
 When VPNs are active, standard Windows NTP time sync (UDP port 123) is blocked, causing PC clocks to slowly slip by 3–4 minutes per week. Deal Sniper includes an **HTTPS Port 443 atomic time sync** (unaffected by VPNs) to ensure automated scans trigger at the exact atomic second.

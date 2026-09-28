@@ -24,20 +24,20 @@
     }
     window.__BB_SNIPER__ = true;
 
-    const SESSION_TRACKER = (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('bb-' + Date.now()));
+    const getTracker = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('bb-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9)));
 
     const CFG = {
         maxCats: 7,
         pagesPerCat: 1,
-        dMin: 800,
-        dMax: 1100,
+        dMin: 2000,
+        dMax: 2500,
         hdrs: () => ({
             "accept": "application/json",
             "content-type": "application/json",
             "x-channel": "BB-WEB",
             "x-entry-context": "bb-b2c",
             "x-entry-context-id": "100",
-            "x-tracker": SESSION_TRACKER
+            "x-tracker": getTracker()
         })
     };
 
@@ -111,14 +111,28 @@
         } catch (_) {}
     };
 
-    const fetchJSON = async (url, retries = 1, delay = 1500) => {
+    const fetchJSON = async (url, retries = 3, onBackoff = null) => {
         for (let attempt = 0; attempt <= retries; attempt++) {
             try {
                 const res = await fetch(url, { headers: CFG.hdrs() });
                 if (res.ok) return await res.json();
                 if (res.status === 429) {
                     if (attempt < retries) {
-                        await sleep(delay);
+                        let waitSec = 0;
+                        const retryAfter = res.headers ? res.headers.get('retry-after') : null;
+                        if (retryAfter) {
+                            const parsed = parseInt(retryAfter, 10);
+                            if (!isNaN(parsed) && parsed > 0) waitSec = parsed;
+                        }
+                        if (!waitSec) {
+                            // Progressive backoff: attempt 0 -> 4s, attempt 1 -> 7s, attempt 2 -> 10s
+                            waitSec = 4 + (attempt * 3);
+                        }
+                        for (let s = waitSec; s > 0; s--) {
+                            if (abortScan) return null;
+                            if (onBackoff) onBackoff(s, waitSec, attempt + 1, retries);
+                            await sleep(1000);
+                        }
                         continue;
                     }
                 }
@@ -257,10 +271,13 @@
         const makeUrl = (page) => `https://www.bigbasket.com/listing-svc/v2/products?type=pc&slug=${cat.slug}&page=${page}&sort=dphtl`;
 
         if (onProg) onProg(`Scanning ${cat.name}...`);
-        let data = await fetchJSON(makeUrl(1), 1, 1500);
+        let data = await fetchJSON(makeUrl(1), 3, (secLeft, totalSec, attempt, maxAttempts) => {
+            if (onProg) onProg(`⏳ Rate limited on ${cat.name}. Pausing (${secLeft}s) before retry ${attempt}/${maxAttempts}...`);
+        });
         if (data) {
             res.push(...handlePage(data, cat.name));
         } else {
+            console.warn(`[BB Sniper] Category ${cat.name} deferred to background sync.`);
             failedQueue.push({ cat, page: 1 });
         }
 
@@ -568,10 +585,12 @@
                 const item = failedQueue.shift();
                 syncBadge.innerHTML = `⚡ Syncing ${item.cat.name} in background...`;
 
-                await sleep(3000);
+                await sleep(5000);
 
                 const url = `https://www.bigbasket.com/listing-svc/v2/products?type=pc&slug=${item.cat.slug}&page=${item.page}&sort=dphtl`;
-                const data = await fetchJSON(url, 2, 3500);
+                const data = await fetchJSON(url, 3, (secLeft, totalSec, attempt, maxAttempts) => {
+                    syncBadge.innerHTML = `⏳ Rate limited on ${item.cat.name}. Pausing (${secLeft}s) before retry ${attempt}/${maxAttempts}...`;
+                });
 
                 if (data) {
                     const newItems = handlePage(data, item.cat.name);
@@ -655,13 +674,13 @@
                     renderModal();
                 }
 
-                // Anti-429 Rate Limit Pause: After every 7 categories, pause 8s to prevent rate limits
+                // Anti-429 Rate Limit Pause: After every 7 categories, pause 10s to prevent rate limits
                 if (i < targets.length - 1 && !abortScan) {
                     if ((i + 1) % 7 === 0) {
                         const batchNum = Math.floor((i + 1) / 7);
                         syncBadge.style.display = 'inline-flex';
                         syncBadge.className = 'bb-sync-badge';
-                        for (let sec = 8; sec > 0; sec--) {
+                        for (let sec = 10; sec > 0; sec--) {
                             if (abortScan) break;
                             const pauseMsg = `⏸️ Batch ${batchNum} complete (${prods.length} deals). Pausing ${sec}s to avoid rate limits...`;
                             setBusy(true, pauseMsg, currPct);
@@ -675,7 +694,8 @@
                         if (m.style.display === 'flex' && syncBadge.style.display !== 'none') {
                             syncBadge.innerHTML = `⚡ Scanning [${i + 1}/${targets.length}]: ${c.name} (${prods.length} deals)`;
                         }
-                        await sleep(CFG.dMin);
+                        const catDelay = Math.floor(CFG.dMin + Math.random() * (CFG.dMax - CFG.dMin));
+                        await sleep(catDelay);
                     }
                 }
             }
