@@ -53,7 +53,7 @@ Tampermonkey will automatically open an install screen. Click the green **"Insta
 BigBasket refreshes inventories and drops flash sales throughout the day. You can schedule Windows to automatically launch Edge, pin the window on top of current apps (without altering your window size), run **Fetch All (20)**, and chime when deals are ready:
 
 #### 🕒 Hourly Automated Schedule
-* **Runs Every 1 Hour Continuously** while your PC is on.
+* **Runs at :00 of Every Hour Continuously** (12:00, 1:00, 2:00, 3:00...) while your PC is on.
 * Automatically wakes Edge pinned on top, starts the scan, and presents fresh deals throughout the day.
 
 #### 📌 Pin-On-Top Window Management

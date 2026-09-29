@@ -359,6 +359,7 @@ def install_task():
         "/tr", action_cmd,
         "/sc", "HOURLY",
         "/mo", "1",
+        "/st", "00:00",
         "/f"
     ]
 

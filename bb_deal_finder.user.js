@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BigBasket Deal Sniper
 // @namespace    https://github.com/jairaj26/bigbasket-deals
-// @version      1.6
+// @version      1.7
 // @description  Find flash deals on BigBasket across categories
 // @author       jairaj26
 // @match        *://*.bigbasket.com/*
@@ -24,7 +24,19 @@
     }
     window.__BB_SNIPER__ = true;
 
-    const getTracker = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('bb-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9)));
+    const getSessionTracker = () => {
+        try {
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const k = sessionStorage.key(i);
+                if (k && k.toLowerCase().includes('tracker')) {
+                    const val = sessionStorage.getItem(k);
+                    if (val && val.length > 10) return val;
+                }
+            }
+        } catch (_) {}
+        return (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : ('bb-' + Date.now()));
+    };
+    const SESSION_TRACKER = getSessionTracker();
 
     const CFG = {
         maxCats: 7,
@@ -35,11 +47,10 @@
         maxPaceMs: 20000,
         hdrs: () => ({
             "accept": "application/json",
-            "content-type": "application/json",
             "x-channel": "BB-WEB",
             "x-entry-context": "bb-b2c",
             "x-entry-context-id": "100",
-            "x-tracker": getTracker()
+            "x-tracker": SESSION_TRACKER
         })
     };
 
@@ -149,7 +160,12 @@
                     continue;
                 }
                 console.warn('[BB Sniper] HTTP', res.status, url);
-                if (res.status >= 400 && res.status < 500) return null; // 403 etc: don't keep hammering
+                if (res.status === 403) {
+                    console.error('[BB Sniper] 403 Access Denied from Akamai WAF. Halting scans immediately.');
+                    window.__BB_BLOCKED__ = true;
+                    return 403;
+                }
+                if (res.status >= 400 && res.status < 500) return null; // other 4xx: don't keep hammering
             } catch (e) {
                 console.warn('[BB Sniper] fetch error:', e);
             }
@@ -291,6 +307,12 @@
         let data = await fetchJSON(makeUrl(1), 3, (secLeft, totalSec, attempt, maxAttempts) => {
             if (onProg) onProg(`⏳ Rate limited on ${cat.name}. Pausing (${secLeft}s) before retry ${attempt}/${maxAttempts}...`);
         });
+        if (data === 403 || window.__BB_BLOCKED__) {
+            if (onProg) onProg(`⛔ Akamai 403 Access Denied. Halting scan.`);
+            abortScan = true;
+            failedQueue = [];
+            return [];
+        }
         if (data) {
             res.push(...handlePage(data, cat.name));
         } else {
@@ -642,6 +664,7 @@
 
         const runFetch = async (fetchAll = false) => {
             if (isFetching) return;
+            window.__BB_BLOCKED__ = false;
             abortScan = false;
             failedQueue = [];
             sBtn.innerText = 'Stop & View Loaded Deals';
@@ -726,8 +749,13 @@
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.checked = false; });
             updateState();
 
-            const catsCount = new Set(prods.map(p => p.cat)).size;
-            setBusy(false, `Done! Found ${prods.length} items across ${catsCount} categories.`);
+            if (window.__BB_BLOCKED__) {
+                setBusy(false, `⛔ Akamai 403 Access Denied. Rate limit block detected. Please wait 10-15 mins or toggle VPN/refresh.`);
+                failedQueue = [];
+            } else {
+                const catsCount = new Set(prods.map(p => p.cat)).size;
+                setBusy(false, `Done! Found ${prods.length} items across ${catsCount} categories.`);
+            }
 
             fBtn.disabled = true;
             fBtn.innerText = 'Fetch Selected';
@@ -753,7 +781,7 @@
                 }, 5000);
             }
 
-            if (failedQueue.length > 0 && !abortScan) {
+            if (failedQueue.length > 0 && !abortScan && !window.__BB_BLOCKED__) {
                 startBackgroundSync();
             }
         };
