@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BigBasket Deal Sniper
 // @namespace    https://github.com/jairaj26/bigbasket-deals
-// @version      1.5
+// @version      1.6
 // @description  Find flash deals on BigBasket across categories
 // @author       jairaj26
 // @match        *://*.bigbasket.com/*
@@ -31,6 +31,8 @@
         pagesPerCat: 1,
         dMin: 2000,
         dMax: 2500,
+        batchPauseSec: 10,
+        maxPaceMs: 20000,
         hdrs: () => ({
             "accept": "application/json",
             "content-type": "application/json",
@@ -111,32 +113,47 @@
         } catch (_) {}
     };
 
+    // Shared, adaptive throttle: EVERY request (first try, retry, background sync) goes through gate().
+    // A 429 slows the pace for all later requests; successes slowly speed it back up.
+    const pace = { base: CFG.dMin, cur: CFG.dMin, nextAt: 0, blockedUntil: 0 };
+    const gate = async () => {
+        const wait = Math.max(pace.nextAt, pace.blockedUntil) - Date.now();
+        if (wait > 0) await sleep(wait);
+        pace.nextAt = Date.now() + pace.cur * (0.75 + Math.random() * 0.75); // jittered spacing
+    };
+
     const fetchJSON = async (url, retries = 3, onBackoff = null) => {
         for (let attempt = 0; attempt <= retries; attempt++) {
+            if (abortScan) return null;
+            await gate();
             try {
                 const res = await fetch(url, { headers: CFG.hdrs() });
-                if (res.ok) return await res.json();
-                if (res.status === 429) {
-                    if (attempt < retries) {
-                        let waitSec = 0;
-                        const retryAfter = res.headers ? res.headers.get('retry-after') : null;
-                        if (retryAfter) {
-                            const parsed = parseInt(retryAfter, 10);
-                            if (!isNaN(parsed) && parsed > 0) waitSec = parsed;
-                        }
-                        if (!waitSec) {
-                            // Progressive backoff: attempt 0 -> 4s, attempt 1 -> 7s, attempt 2 -> 10s
-                            waitSec = 4 + (attempt * 3);
-                        }
-                        for (let s = waitSec; s > 0; s--) {
-                            if (abortScan) return null;
-                            if (onBackoff) onBackoff(s, waitSec, attempt + 1, retries);
-                            await sleep(1000);
-                        }
-                        continue;
-                    }
+                if (res.ok) {
+                    pace.cur = Math.max(pace.base, pace.cur * 0.92);
+                    return await res.json();
                 }
-            } catch { }
+                if (res.status === 429 || res.status === 503) {
+                    pace.cur = Math.min(CFG.maxPaceMs, pace.cur * 1.5 + 500);
+                    console.warn(`[BB Sniper] ${res.status} -> pace now ${Math.round(pace.cur)}ms`);
+                    if (attempt === retries) return null;
+                    const ra = parseInt(res.headers ? res.headers.get('retry-after') : '', 10);
+                    // No Retry-After? Exponential: ~15s, 30s, 60s (+ jitter) instead of 4/7/10s
+                    let waitSec = (!isNaN(ra) && ra > 0) ? ra : Math.min(90, 15 * Math.pow(2, attempt));
+                    waitSec += Math.floor(Math.random() * 5);
+                    pace.blockedUntil = Date.now() + waitSec * 1000; // pauses all other requests too
+                    for (let s = waitSec; s > 0; s--) {
+                        if (abortScan) return null;
+                        if (onBackoff) onBackoff(s, waitSec, attempt + 1, retries);
+                        await sleep(1000);
+                    }
+                    continue;
+                }
+                console.warn('[BB Sniper] HTTP', res.status, url);
+                if (res.status >= 400 && res.status < 500) return null; // 403 etc: don't keep hammering
+            } catch (e) {
+                console.warn('[BB Sniper] fetch error:', e);
+            }
+            await sleep(2000 * (attempt + 1)); // other errors: back off instead of retrying instantly
         }
         return null;
     };
@@ -680,7 +697,7 @@
                         const batchNum = Math.floor((i + 1) / 7);
                         syncBadge.style.display = 'inline-flex';
                         syncBadge.className = 'bb-sync-badge';
-                        for (let sec = 10; sec > 0; sec--) {
+                        for (let sec = CFG.batchPauseSec; sec > 0; sec--) {
                             if (abortScan) break;
                             const pauseMsg = `⏸️ Batch ${batchNum} complete (${prods.length} deals). Pausing ${sec}s to avoid rate limits...`;
                             setBusy(true, pauseMsg, currPct);
@@ -915,7 +932,7 @@
                 console.log('[BB Sniper] Checking auto-run flag...', { href, autoParam });
 
                 if (autoParam === 'all' || autoParam === '1' || autoParam === 'true' || href.includes('bb_auto=')) {
-                    console.log('[BB Sniper] Auto-run detected! Scheduling Fetch All in 1.5s...');
+                    console.log('[BB Sniper] Auto-run detected! Preparing slow profile fetch...');
 
                     try {
                         url.searchParams.delete('bb_auto');
@@ -923,12 +940,16 @@
                         window.history.replaceState({}, document.title, cleanUrl);
                     } catch (_) {}
 
+                    // Auto (hourly) run has no reason to be fast: slow profile + let the page's own API calls settle first.
+                    CFG.dMin = 6000; CFG.dMax = 10000; CFG.batchPauseSec = 30;
+                    pace.base = pace.cur = CFG.dMin;
+                    const startDelay = 8000 + Math.random() * 4000;
                     setTimeout(() => {
                         const p = document.getElementById('bb-pop');
                         if (p) p.style.display = 'flex';
-                        console.log('[BB Sniper] Auto-run: Starting Fetch All across 20 categories now!');
+                        console.log('[BB Sniper] Auto-run: Starting Fetch All (slow profile) now!');
                         runFetch(true);
-                    }, 1500);
+                    }, startDelay);
                 }
             } catch (err) {
                 console.error('[BB Sniper] Auto-run error:', err);
