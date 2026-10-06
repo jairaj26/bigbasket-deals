@@ -50,32 +50,30 @@ Tampermonkey will automatically open an install screen. Click the green **"Insta
 
 ### ⏰ Optional: Automated Hourly Deal Sniper (Runs Every Hour)
 
-BigBasket refreshes inventories and drops flash sales throughout the day. You can schedule Windows to automatically launch Edge, pin the window on top of current apps (without altering your window size), run **Fetch All (20)**, and chime when deals are ready:
+BigBasket refreshes inventories and drops flash sales throughout the day. You can schedule Windows to automatically launch Edge, pin the window on top of current apps (without altering your window size), scan your selected essential categories, and chime when deals are ready:
 
 #### 🕒 Hourly Automated Schedule
 * **Runs at :00 of Every Hour Continuously** (12:00, 1:00, 2:00, 3:00...) while your PC is on.
-* Automatically wakes Edge pinned on top, starts the scan, and presents fresh deals throughout the day.
+* Automatically wakes Edge pinned on top, scans top essential categories gently, and presents fresh deals throughout the day.
 
 #### 📌 Pin-On-Top Window Management
 Edge launches and automatically pins **on top of all open desktop apps (such as PotPlayer, video players, games)**:
 * **Preserves your original window size and position**: Does not resize or move your browser.
 * Ensures the deal scanner stays visible while your background videos keep playing.
 
-#### ⚡ Instant Grid View + Live Background Loading
-* **Opens Immediately After Batch 1**: You don't have to wait for all 20 categories. The full Deals Explorer grid opens as soon as the first 7 priority categories finish!
-* **Live Background Stream**: Batches 2 and 3 continue loading in the background, smoothly inserting new deals, updating category filters, and adjusting brand counts in real time.
-* **Persistent Out of Stock Filter**: Out of stock items are displayed by default. If you uncheck "Show Out of Stock", your preference is saved and remembered for all future fetches.
+#### 🎯 Focused on Top 4 Essential Categories (v2.0)
+Instead of bulk scraping the entire store, Deal Sniper v2.0 focuses exclusively on the highest-value flash sale categories:
+1. **Foodgrains, Oil & Masala**
+2. **Edible Oils & Ghee**
+3. **Dairy**
+4. **Beverages**
 
-#### 🛡️ Anti-429 Adaptive Throttling (v1.6)
-BigBasket restricts rapid sequential queries across categories. Deal Sniper v1.6 uses an adaptive TCP-style throttle gate and dual-profile pacing:
-1. **Shared Adaptive Throttle Gate (`gate()`)**: Every single request (first-try, retry, background sync) routes through a centralized rate gate. If a 429 occurs, the pace dynamically increases (`curPace = min(20s, curPace * 1.5 + 500ms)`) and pauses ALL pending requests. When calls succeed, pace gently relaxes back down.
-2. **Realistic 429 / 503 Backoff**: Akamai/BigBasket rate windows require time to reset. The backoff now waits **~15s, 30s, 60s (+ jitter)** with a live UI countdown, respecting server `Retry-After` headers if returned.
-3. **Dedicated Hourly Auto-Run Slow Profile**: When launched automatically via Task Scheduler (`--now` or hourly), there is no human waiting on the screen. The script allows 8–12 seconds for BigBasket's homepage API calls to settle, then uses a gentle **6.0s–10.0s pacing** with **30-second batch pauses** to completely avoid rate limits.
-4. **Prioritized 3-Batch Flow**:
-   - **Batch 1 (High-Priority Essentials - First 7)**: Foodgrains, Dairy, Edible Oils, Beverages, Chocolates, Snacks, Bakery. *(Grid opens immediately!)*
-   - **Batch 2 (Personal Care & Biscuits - Next 7)**: Dry Fruits, Skin Care, Hair Care, Bath, Baby Care, Detergents, Biscuits & Cookies.
-   - **Batch 3 (Gourmet & Remaining - Last 6)**: Gourmet & World Food, Diapers & Wipes, Beauty & Hygiene, Cleaning, Kitchen, Fruits & Vegetables.
-5. **Maximum 7 Selectable**: The manual category picker is capped at **7 categories max per fetch** to prevent accidental rate limits.
+#### 🛡️ Akamai Bot-Safe & Rate-Limit Proof
+* **Capped at Max 3 Categories per Fetch**: You can pick any 1, 2, or up to 3 categories.
+* **Bulk "Fetch All" Removed**: Eliminates bulk catalog sweeps to keep network traffic completely under Akamai Bot Manager detection thresholds.
+* **Stable Session Tracking**: Uses a natural, persistent session tracker matching normal browser shopping.
+* **2.0s–2.5s Gentle Cadence**: Gentle pacing with randomized jitter mimics human browsing.
+* **Persistent Out of Stock Filter**: Out of stock items are displayed by default. If you uncheck "Show Out of Stock", your preference is remembered for all future fetches.
 
 #### 🌐 VPN Clock Drift Detection (HTTPS Atomic Time)
 When VPNs are active, standard Windows NTP time sync (UDP port 123) is blocked, causing PC clocks to slowly slip by 3–4 minutes per week. Deal Sniper includes an **HTTPS Port 443 atomic time sync** (unaffected by VPNs) to ensure automated scans trigger at the exact atomic second.
@@ -106,9 +104,8 @@ python bb_sniper.py --remove-task
 When any scheduled slot arrives:
 1. Windows wakes Edge pinned on top of open apps at `https://www.bigbasket.com/?bb_auto=all`.
 2. A Windows toast notification confirms: *"BigBasket Deal Sniper Activated"*.
-3. The script automatically runs **Fetch All (20)** across all categories in 3 prioritized batches.
-4. If any 429 occurs, it smoothly defers and recovers missing pages in the background.
-5. The Deals Explorer grid pops open with your deals, accompanied by an audio chime alert!
+3. The script automatically scans your top 3 essential categories.
+4. The Deals Explorer grid pops open with your deals, accompanied by an audio chime alert!
 
 ---
 

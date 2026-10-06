@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BigBasket Deal Sniper
 // @namespace    https://github.com/jairaj26/bigbasket-deals
-// @version      1.7
+// @version      2.0
 // @description  Find flash deals on BigBasket across categories
 // @author       jairaj26
 // @match        *://*.bigbasket.com/*
@@ -39,7 +39,7 @@
     const SESSION_TRACKER = getSessionTracker();
 
     const CFG = {
-        maxCats: 7,
+        maxCats: 3,
         pagesPerCat: 1,
         dMin: 2000,
         dMax: 2500,
@@ -55,31 +55,10 @@
     };
 
     const CATS = [
-        // --- Priority Batch 1: High-Priority Essentials (First 7 Categories) ---
         "Foodgrains, Oil & Masala|foodgrains-oil-masala",
-        "Dairy|dairy",
         "Edible Oils & Ghee|edible-oils-ghee",
-        "Beverages (Tea/Coffee)|beverages",
-        "Chocolates & Candies|chocolates-candies",
-        "Snacks & Branded Foods|snacks-branded-foods",
-        "Bakery, Cakes & Dairy|bakery-cakes-dairy",
-
-        // --- Priority Batch 2: Personal Care & Biscuits (Next 7 Categories) ---
-        "Dry Fruits|dry-fruits",
-        "Skin Care|skin-care",
-        "Hair Care|hair-care",
-        "Bath & Hand Wash|bath-hand-wash",
-        "Baby Care|baby-care",
-        "Detergents & Dishwash|detergents-dishwash",
-        "Biscuits & Cookies|biscuits-cookies",
-
-        // --- Priority Batch 3: Gourmet & Remaining (Last 6 Categories) ---
-        "Gourmet & World Food|gourmet-world-food",
-        "Diapers & Wipes|diapers-wipes",
-        "Beauty & Hygiene|beauty-hygiene",
-        "Cleaning & Household|cleaning-household",
-        "Kitchen & Home Needs|kitchen-garden-pets",
-        "Fruits & Vegetables|fruits-vegetables"
+        "Dairy|dairy",
+        "Beverages|beverages"
     ].map(s => {
         const [n, slug] = s.split('|');
         return { name: n, slug, type: 'pc' };
@@ -447,14 +426,14 @@
                     <button id="bb-cls">X</button>
                 </div>
                 <div class="bb-tb">
-                    <span id="bb-lbl">Pick Categories or Fetch All</span>
+                    <span id="bb-lbl">Pick Categories (Max 3)</span>
                     <div>
                         <button id="bb-none">Clear</button>
                     </div>
                 </div>
                 <div class="bb-list" id="bb-list"></div>
                 <div class="bb-st-wrap">
-                    <div class="bb-st" id="bb-st">Select up to 7 categories or Fetch All (20)</div>
+                    <div class="bb-st" id="bb-st">Select up to 3 categories to scan deals</div>
                     <div class="bb-pbar-bg" id="bb-pbar-bg">
                         <div class="bb-pbar-fill" id="bb-pbar-fill"></div>
                     </div>
@@ -462,7 +441,6 @@
                 <div class="bb-acts">
                     <div class="bb-row" id="bb-btn-row">
                         <button id="bb-f" class="bb-btn bb-btn-f" disabled>Fetch Selected</button>
-                        <button id="bb-a" class="bb-btn bb-btn-a">Fetch All (20)</button>
                     </div>
                     <button id="bb-s" class="bb-btn bb-btn-s">Stop & View Loaded Deals</button>
                     <button id="bb-m-btn" class="bb-btn bb-btn-m">View Deals Grid ></button>
@@ -534,7 +512,6 @@
 
         const pop = document.getElementById('bb-pop');
         const fBtn = document.getElementById('bb-f');
-        const aBtn = document.getElementById('bb-a');
         const sBtn = document.getElementById('bb-s');
         const mBtn = document.getElementById('bb-m-btn');
         const lbl = document.getElementById('bb-lbl');
@@ -552,7 +529,7 @@
             const checked = document.querySelectorAll('.bb-cb:checked');
             const cnt = checked.length;
 
-            lbl.innerText = cnt > 0 ? `${cnt} of ${CFG.maxCats} Selected${cnt >= CFG.maxCats ? ' (Max Limit)' : ''}` : `Pick Categories or Fetch All`;
+            lbl.innerText = cnt > 0 ? `${cnt} of ${CFG.maxCats} Selected${cnt >= CFG.maxCats ? ' (Max Limit)' : ''}` : `Pick up to ${CFG.maxCats} Categories`;
 
             document.querySelectorAll('.bb-cb').forEach(cb => {
                 if (!cb.checked) {
@@ -573,7 +550,6 @@
                 } else {
                     fBtn.innerText = `Fetch (${cnt} Categories)`;
                 }
-                if (aBtn) aBtn.disabled = false;
             }
         };
 
@@ -601,10 +577,8 @@
                 sBtn.style.display = 'none';
                 pbarBg.style.display = 'none';
                 fBtn.disabled = document.querySelectorAll('.bb-cb:checked').length === 0;
-                if (aBtn) aBtn.disabled = false;
             }
             document.querySelectorAll('.bb-cb').forEach(cb => { cb.disabled = busy; });
-            if (aBtn) aBtn.disabled = busy;
         };
 
         sBtn.onclick = () => {
@@ -655,7 +629,7 @@
 
             isBackgroundSyncing = false;
             syncBadge.className = 'bb-sync-badge done';
-            syncBadge.innerHTML = `✓ All 20 Categories 100% Synced`;
+            syncBadge.innerHTML = `✓ All Selected Categories 100% Synced`;
             setTimeout(() => {
                 syncBadge.style.opacity = '0';
                 setTimeout(() => { syncBadge.style.display = 'none'; syncBadge.style.opacity = '1'; }, 400);
@@ -670,7 +644,7 @@
             sBtn.innerText = 'Stop & View Loaded Deals';
 
             const targets = fetchAll
-                ? CATS
+                ? CATS.slice(0, CFG.maxCats)
                 : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => CATS.find(x => x.slug === cb.value)).filter(Boolean);
             if (!targets.length) return;
 
@@ -697,46 +671,12 @@
                     return seenSoFar.has(key) ? false : seenSoFar.add(key);
                 });
 
-                // User Requirement: Once Batch 1 (first 7 categories) is fetched, open the deals grid immediately!
-                if ((i + 1) === 7 && prods.length > 0) {
-                    mBtn.style.display = 'block';
-                    mBtn.innerText = `View ${prods.length} Deals Grid >`;
-                    if (m.style.display !== 'flex') {
-                        openModal();
-                    } else {
-                        refreshFiltersSmoothly();
-                        renderModal();
-                    }
-                    playChime();
-                } else if ((i + 1) > 7 && m.style.display === 'flex') {
-                    // Update the open grid in real time as Batch 2 and 3 deals arrive
-                    refreshFiltersSmoothly();
-                    renderModal();
-                }
-
-                // Anti-429 Rate Limit Pause: After every 7 categories, pause 10s to prevent rate limits
                 if (i < targets.length - 1 && !abortScan) {
-                    if ((i + 1) % 7 === 0) {
-                        const batchNum = Math.floor((i + 1) / 7);
-                        syncBadge.style.display = 'inline-flex';
-                        syncBadge.className = 'bb-sync-badge';
-                        for (let sec = CFG.batchPauseSec; sec > 0; sec--) {
-                            if (abortScan) break;
-                            const pauseMsg = `⏸️ Batch ${batchNum} complete (${prods.length} deals). Pausing ${sec}s to avoid rate limits...`;
-                            setBusy(true, pauseMsg, currPct);
-                            syncBadge.innerHTML = pauseMsg;
-                            await sleep(1000);
-                        }
-                        if (!abortScan) {
-                            syncBadge.innerHTML = `⚡ Resuming Batch ${batchNum + 1}...`;
-                        }
-                    } else {
-                        if (m.style.display === 'flex' && syncBadge.style.display !== 'none') {
-                            syncBadge.innerHTML = `⚡ Scanning [${i + 1}/${targets.length}]: ${c.name} (${prods.length} deals)`;
-                        }
-                        const catDelay = Math.floor(CFG.dMin + Math.random() * (CFG.dMax - CFG.dMin));
-                        await sleep(catDelay);
+                    if (m.style.display === 'flex' && syncBadge.style.display !== 'none') {
+                        syncBadge.innerHTML = `⚡ Scanning [${i + 1}/${targets.length}]: ${c.name} (${prods.length} deals)`;
                     }
+                    const catDelay = Math.floor(CFG.dMin + Math.random() * (CFG.dMax - CFG.dMin));
+                    await sleep(catDelay);
                 }
             }
 
@@ -759,7 +699,6 @@
 
             fBtn.disabled = true;
             fBtn.innerText = 'Fetch Selected';
-            if (aBtn) aBtn.disabled = false;
 
             if (prods.length > 0) {
                 mBtn.style.display = 'block';
@@ -787,7 +726,6 @@
         };
 
         fBtn.onclick = () => runFetch(false);
-        if (aBtn) aBtn.onclick = () => runFetch(true);
 
         const bBtn = document.getElementById('bb-brand-btn');
         const bMenu = document.getElementById('bb-brand-menu');
