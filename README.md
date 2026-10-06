@@ -48,13 +48,17 @@ Tampermonkey will automatically open an install screen. Click the green **"Insta
 
 ---
 
-### ⏰ Optional: Automated Hourly Deal Sniper (Runs Every Hour)
+### ⏰ Optional: Automated Daily Deal Sniper (4x Daily)
 
-BigBasket refreshes inventories and drops flash sales throughout the day. You can schedule Windows to automatically launch Edge, pin the window on top of current apps (without altering your window size), scan your selected essential categories, and chime when deals are ready:
+BigBasket refreshes inventories and drops flash sales at specific times of the day. You can schedule Windows to automatically launch Edge, pin the window on top of current apps (without altering your window size), scan your selected essential categories, and chime when deals are ready:
 
-#### 🕒 Hourly Automated Schedule
-* **Runs at :00 of Every Hour Continuously** (12:00, 1:00, 2:00, 3:00...) while your PC is on.
-* Automatically wakes Edge pinned on top, scans top essential categories gently, and presents fresh deals throughout the day.
+#### 🕒 4x Daily Strategic Schedule
+* **Runs 4 Times Daily** while your PC is on:
+  * **12:00 AM** &mdash; Midnight Deal Drops & daily inventory reset
+  * **4:00 PM** &mdash; Afternoon Restock & new clearance batches
+  * **7:00 PM** &mdash; Evening Flash Sales & peak discount drops
+  * **11:30 PM** &mdash; Pre-Midnight Clearance & last-chance steals
+* Automatically wakes Edge pinned on top, scans top essential categories gently, and presents fresh deals without triggering rate limits.
 
 #### 📌 Pin-On-Top Window Management
 Edge launches and automatically pins **on top of all open desktop apps (such as PotPlayer, video players, games)**:
@@ -79,7 +83,7 @@ Instead of bulk scraping the entire store, Deal Sniper v2.0 focuses exclusively 
 When VPNs are active, standard Windows NTP time sync (UDP port 123) is blocked, causing PC clocks to slowly slip by 3–4 minutes per week. Deal Sniper includes an **HTTPS Port 443 atomic time sync** (unaffected by VPNs) to ensure automated scans trigger at the exact atomic second.
 
 ```powershell
-# 1. Register hourly schedule in Windows Task Scheduler (runs silently every 1 hour)
+# 1. Register 4x daily schedule in Windows Task Scheduler (runs silently at 12:00 AM, 4:00 PM, 7:00 PM, 11:30 PM)
 python bb_sniper.py --install-task
 
 # 2. Test launch pinned on top immediately over current apps
