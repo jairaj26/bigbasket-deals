@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BigBasket Deal Sniper
 // @namespace    https://github.com/jairaj26/bigbasket-deals
-// @version      2.0
+// @version      2.1
 // @description  Find flash deals on BigBasket across categories
 // @author       jairaj26
 // @match        *://*.bigbasket.com/*
@@ -54,14 +54,44 @@
         })
     };
 
+    const ASSIGNED_SLUGS = new Set([
+        "foodgrains-oil-masala",
+        "edible-oils-ghee",
+        "dairy",
+        "beverages"
+    ]);
+
     const CATS = [
+        // --- Assigned Essentials (Scheduled Auto-Snipe) ---
         "Foodgrains, Oil & Masala|foodgrains-oil-masala",
         "Edible Oils & Ghee|edible-oils-ghee",
         "Dairy|dairy",
-        "Beverages|beverages"
+        "Beverages (Tea/Coffee)|beverages",
+
+        // --- Biscuits, Snacks & Bakery ---
+        "Biscuits & Cookies|biscuits-cookies",
+        "Chocolates & Candies|chocolates-candies",
+        "Snacks & Branded Foods|snacks-branded-foods",
+        "Bakery, Cakes & Dairy|bakery-cakes-dairy",
+
+        // --- Personal Care & Household ---
+        "Dry Fruits|dry-fruits",
+        "Skin Care|skin-care",
+        "Hair Care|hair-care",
+        "Bath & Hand Wash|bath-hand-wash",
+        "Baby Care|baby-care",
+        "Detergents & Dishwash|detergents-dishwash",
+
+        // --- Gourmet & Home Needs ---
+        "Gourmet & World Food|gourmet-world-food",
+        "Diapers & Wipes|diapers-wipes",
+        "Beauty & Hygiene|beauty-hygiene",
+        "Cleaning & Household|cleaning-household",
+        "Kitchen & Home Needs|kitchen-garden-pets",
+        "Fruits & Vegetables|fruits-vegetables"
     ].map(s => {
         const [n, slug] = s.split('|');
-        return { name: n, slug, type: 'pc' };
+        return { name: n, slug, type: 'pc', isAssigned: ASSIGNED_SLUGS.has(slug) };
     });
 
     let prods = [];
@@ -314,8 +344,9 @@
             .bb-hd{background:#2e7d32;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:700;}
             .bb-hd button{background:rgba(255,255,255,0.2);border:none;color:#fff;width:24px;height:24px;border-radius:50%;cursor:pointer;}
             .bb-tb{display:flex;justify-content:space-between;padding:8px 14px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:600;color:#475569;}
-            .bb-tb button{background:none;border:none;color:#2e7d32;font-weight:700;cursor:pointer;font-size:11.5px;}
-            .bb-list{padding:8px 14px;overflow-y:auto;max-height:210px;display:flex;flex-direction:column;gap:3px;}
+            .bb-list{padding:8px 14px;overflow-y:auto;max-height:250px;display:flex;flex-direction:column;gap:3px;}
+            .bb-cat-grp{font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:6px 0 2px 0;border-top:1px dashed #e2e8f0;margin-top:4px;}
+            .bb-cat-grp:first-child{border-top:none;margin-top:0;padding-top:0;}
             .bb-item{display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px;color:#334155;cursor:pointer;}
             .bb-item input{accent-color:#2e7d32;width:15px;height:15px;}
             .bb-item.disabled{opacity:0.35;cursor:not-allowed;}
@@ -503,7 +534,20 @@
         document.body.appendChild(m);
 
         const list = document.getElementById('bb-list');
-        CATS.forEach(c => {
+        let renderedOtherHeader = false;
+        CATS.forEach((c, idx) => {
+            if (idx === 0) {
+                const grp = document.createElement('div');
+                grp.className = 'bb-cat-grp';
+                grp.innerText = '⚡ Assigned Essentials (Auto-Snipe)';
+                list.appendChild(grp);
+            } else if (!c.isAssigned && !renderedOtherHeader) {
+                renderedOtherHeader = true;
+                const grp = document.createElement('div');
+                grp.className = 'bb-cat-grp';
+                grp.innerText = 'Explore Other Categories';
+                list.appendChild(grp);
+            }
             const el = document.createElement('label');
             el.className = 'bb-item';
             el.innerHTML = `<input type="checkbox" value="${c.slug}" class="bb-cb"> <span>${c.name}</span>`;
@@ -644,12 +688,20 @@
             sBtn.innerText = 'Stop & View Loaded Deals';
 
             const targets = fetchAll
-                ? CATS.slice(0, CFG.maxCats)
+                ? CATS.filter(c => c.isAssigned)
                 : Array.from(document.querySelectorAll('.bb-cb:checked')).map(cb => CATS.find(x => x.slug === cb.value)).filter(Boolean);
             if (!targets.length) return;
 
             setBusy(true, `Scanning ${targets.length} categories...`, 0);
-            prods = [];
+
+            if (fetchAll) {
+                prods = [];
+            } else {
+                // When manually fetching additional categories, preserve deals from other categories,
+                // and only replace/refresh products from the categories currently being fetched.
+                const targetCatNames = new Set(targets.map(t => t.name));
+                prods = prods.filter(p => !targetCatNames.has(p.cat));
+            }
 
             for (let i = 0; i < targets.length; i++) {
                 if (abortScan) break;
@@ -670,6 +722,12 @@
                     const key = `${p.id}-${p.cat}`;
                     return seenSoFar.has(key) ? false : seenSoFar.add(key);
                 });
+
+                // Update open grid in real time if modal is currently open
+                if (m.style.display === 'flex') {
+                    refreshFiltersSmoothly();
+                    renderModal();
+                }
 
                 if (i < targets.length - 1 && !abortScan) {
                     if (m.style.display === 'flex' && syncBadge.style.display !== 'none') {

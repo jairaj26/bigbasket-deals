@@ -65,12 +65,15 @@ Edge launches and automatically pins **on top of all open desktop apps (such as 
 * **Preserves your original window size and position**: Does not resize or move your browser.
 * Ensures the deal scanner stays visible while your background videos keep playing.
 
-#### 🎯 Focused on Top 4 Essential Categories (v2.0)
-Instead of bulk scraping the entire store, Deal Sniper v2.0 focuses exclusively on the highest-value flash sale categories:
-1. **Foodgrains, Oil & Masala**
-2. **Edible Oils & Ghee**
-3. **Dairy**
-4. **Beverages**
+#### 🎯 Assigned Essentials for Scheduled Sniper + Full Category Explorer (v2.1)
+* **Automated Scheduled Runs**: The background sniper focuses exclusively on the 4 assigned essentials:
+  1. **Foodgrains, Oil & Masala**
+  2. **Edible Oils & Ghee**
+  3. **Dairy**
+  4. **Beverages**
+* **Full Category Explorer**: All other categories (Chocolates, Snacks, Bakery, Biscuits, Personal Care, Gourmet, etc.) remain visible and accessible in the sidebar!
+* **Seamless Deal Merging**: When you manually select and fetch other categories after the assigned essentials, your previous deals remain in the Deals Explorer grid without being wiped out.
+* **Capped at Max 3 per Fetch**: Any manual fetch is capped at 3 categories at a time with a humanized 2.0s–2.5s jitter delay, keeping network traffic completely beneath Akamai WAF thresholds.
 
 #### 🛡️ Akamai Bot-Safe & Rate-Limit Proof
 * **Capped at Max 3 Categories per Fetch**: You can pick any 1, 2, or up to 3 categories.
