@@ -11,6 +11,8 @@ node_modules/
 # Environment and secrets
 .env
 .env.*
+bb_deals_history.json
+test_deals_history.json
 
 # Python
 __pycache__/

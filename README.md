@@ -108,6 +108,46 @@ python bb_sniper.py --watch
 python bb_sniper.py --remove-task
 ```
 
+---
+
+### 🤖 Method 3: Headless Background Telegram Sniper (Zero Browser Windows)
+
+If you don't want any browser window opening on your desktop at all, you can use **`bb_telegram_sniper.py`**. It runs 100% silently in the background, executes Playwright off-screen to bypass Akamai WAF, and delivers deals directly to your personal **Telegram Bot**:
+
+#### 📱 Exact 3-Line Combined Messages
+Each deal is delivered in a clean, compact 3-line format, bundled into single messages separated by `\n\n`:
+```text
+🛒 Fortune Sunlite Refined Sunflower Oil (1L)
+💰 ₹85  (MRP: ₹175) || 51% OFF 
+🔗 [Open on BigBasket](https://www.bigbasket.com/pd/...)
+```
+
+#### 🧠 Smart 15-Day Cooloff & Deduplication Rule
+* **Day 1**: New deals are discovered and sent to your Telegram bot.
+* **Day 2**: If an item stays at the **same discount** for the second day, it is **hidden from sending for 15 days**.
+* **Discount Changes**: If a price drops further or the discount changes, suppression resets and the deal is **alerted immediately**.
+* **No Daily Spam**: Identical deals are never repeated on subsequent scans within the same day.
+
+#### 🚀 Quick Setup:
+1. Open `.env` and fill in your Telegram credentials:
+   ```env
+   TELEGRAM_BOT_TOKEN=your_token_from_botfather
+   TELEGRAM_CHAT_ID=your_id_from_userinfobot
+   MIN_DISCOUNT=50
+   ```
+2. Test sending an alert to Telegram:
+   ```powershell
+   python bb_telegram_sniper.py --test-telegram
+   ```
+3. Run a live background scan immediately:
+   ```powershell
+   python bb_telegram_sniper.py --now
+   ```
+4. Register the 4x daily silent background schedule in Windows Task Scheduler:
+   ```powershell
+   python bb_telegram_sniper.py --install-task
+   ```
+
 When any scheduled slot arrives:
 1. Windows wakes Edge pinned on top of open apps at `https://www.bigbasket.com/?bb_auto=all`.
 2. A Windows toast notification confirms: *"BigBasket Deal Sniper Activated"*.
