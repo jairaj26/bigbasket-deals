@@ -2,22 +2,33 @@
 BigBasket Deal Sniper - Headless Telegram Bot Automation
 =========================================================
 Runs completely in the background without opening any visible browser window.
-Scans BigBasket for steep discounts (>=50% OFF) and alerts via Telegram Bot.
+Scans BigBasket for steep discounts (>=50% or >=70% OFF) and alerts via Telegram Bot.
 
 Features:
-- Completely Invisible / Off-screen Execution (zero desktop disruption)
-- Akamai Bot-Proof (uses real Edge engine off-screen via Playwright)
+- Completely Invisible Execution (off-screen Edge instance with masked screen coordinates)
+- Upgraded Akamai WAF Evasion:
+    * Aborts heavy media/fonts while preserving JS sensors
+    * Spoofs dynamic Referer via window.history.pushState for every category
+    * Extracts session tracker UUID from sessionStorage
+    * Generates human mouse movement and wheel telemetry to keep _abck valid
+    * Micro-batching and adaptive jitter between categories
+    * Graceful 429/503 backoff and 403 recovery
+- Variant Product Parsing: Scans both top-level products and nested variant children
+- Strengthened Out-Of-Stock (OOS) Filtering
+- HTML Telegram Formatting: 100% immune to entity parse errors
 - Deduplication & 15-Day Cooloff Rule:
     * Sends new deals on Day 1.
     * If an item remains at the same discount on Day 2, suppresses it for 15 days.
     * If the discount changes, alerts immediately.
-- Compact 3-line format per deal, combined in single messages separated by \\n\\n
-- Windows Task Scheduler registration for 4 daily scans (12:00 AM, 4:00 PM, 7:00 PM, 11:30 PM)
+    * Commits history only after successful Telegram delivery.
+- File Logging: Auto-rotating log (bb_sniper.log) for background diagnostics
+- Windows Task Scheduler integration (4x daily: 12:00 AM, 4:00 PM, 7:00 PM, 11:30 PM)
 
 Usage:
-    python bb_telegram_sniper.py --now             # Run background scan & send deals to Telegram now
-    python bb_telegram_sniper.py --test-telegram   # Send a test message to your Telegram bot
-    python bb_telegram_sniper.py --install-task    # Register 4x daily background schedule in Windows
+    python bb_telegram_sniper.py --now             # Run scan for assigned categories & alert
+    python bb_telegram_sniper.py --now --all-cats  # Run scan for all 20 categories
+    python bb_telegram_sniper.py --test-telegram   # Send a test message to Telegram bot
+    python bb_telegram_sniper.py --install-task    # Register 4x daily schedule in Windows
     python bb_telegram_sniper.py --status-task     # Check Windows Task Scheduler status
     python bb_telegram_sniper.py --remove-task     # Remove scheduled task
     python bb_telegram_sniper.py --reset-history   # Reset deals history tracking database
@@ -25,8 +36,11 @@ Usage:
 
 import sys
 import os
+import re
 import time
 import json
+import html
+import random
 import argparse
 import subprocess
 import urllib.request
@@ -47,7 +61,33 @@ if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.path.join(SCRIPT_DIR, ".env")
 HISTORY_FILE = os.path.join(SCRIPT_DIR, "bb_deals_history.json")
+LOG_FILE = os.path.join(SCRIPT_DIR, "bb_sniper.log")
 TASK_NAME = "BigBasketTelegramSniper"
+
+
+def log(msg: str):
+    """Print to console and append to rotating log file."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    formatted = f"[{timestamp}] {msg}"
+    print(msg)
+    try:
+        # Rotate log if larger than 1 MB
+        if os.path.exists(LOG_FILE) and os.path.getsize(LOG_FILE) > 1024 * 1024:
+            old_log = LOG_FILE + ".1"
+            if os.path.exists(old_log):
+                try:
+                    os.remove(old_log)
+                except Exception:
+                    pass
+            try:
+                os.rename(LOG_FILE, old_log)
+            except Exception:
+                pass
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(formatted + "\n")
+    except Exception:
+        pass
+
 
 def load_env():
     """Load settings from .env file without external dependencies."""
@@ -77,12 +117,38 @@ def load_env():
                         else:
                             config[k] = v
         except Exception as e:
-            print(f"[!] Warning reading .env: {e}")
+            log(f"[!] Warning reading .env: {e}")
     return config
+
 
 CFG = load_env()
 
-# Assigned Essential Categories for automated scan
+# Master list of all 20 categories
+ALL_CATEGORIES = [
+    {"name": "Foodgrains, Oil & Masala", "slug": "foodgrains-oil-masala"},
+    {"name": "Edible Oils & Ghee", "slug": "edible-oils-ghee"},
+    {"name": "Dairy", "slug": "dairy"},
+    {"name": "Beverages", "slug": "beverages"},
+    {"name": "Biscuits & Cookies", "slug": "biscuits-cookies"},
+    {"name": "Chocolates & Candies", "slug": "chocolates-candies"},
+    {"name": "Snacks & Branded Foods", "slug": "snacks-branded-foods"},
+    {"name": "Bakery, Cakes & Dairy", "slug": "bakery-cakes-dairy"},
+    {"name": "Dry Fruits", "slug": "dry-fruits"},
+    {"name": "Skin Care", "slug": "skin-care"},
+    {"name": "Hair Care", "slug": "hair-care"},
+    {"name": "Bath & Hand Wash", "slug": "bath-hand-wash"},
+    {"name": "Baby Care", "slug": "baby-care"},
+    {"name": "Detergents & Dishwash", "slug": "detergents-dishwash"},
+    {"name": "Gourmet & World Food", "slug": "gourmet-world-food"},
+    {"name": "Diapers & Wipes", "slug": "diapers-wipes"},
+    {"name": "Beauty & Hygiene", "slug": "beauty-hygiene"},
+    {"name": "Cleaning & Household", "slug": "cleaning-household"},
+    {"name": "Kitchen & Home Needs", "slug": "kitchen-garden-pets"},
+    {"name": "Fruits & Vegetables", "slug": "fruits-vegetables"}
+]
+
+# Currently assigned categories for daily scheduled scanning
+# (Kept to 4 categories for WAF validation as instructed; switchable via --all-cats)
 ASSIGNED_CATEGORIES = [
     {"name": "Foodgrains, Oil & Masala", "slug": "foodgrains-oil-masala"},
     {"name": "Edible Oils & Ghee", "slug": "edible-oils-ghee"},
@@ -100,23 +166,23 @@ DAILY_SCHEDULE = [
 
 
 # ==============================================================================
-# Telegram Bot Delivery
+# Telegram Bot Delivery (HTML Parse Mode)
 # ==============================================================================
 
 def send_telegram_message(text: str, bot_token: str = None, chat_id: str = None) -> bool:
-    """Send a formatted message to Telegram Bot via HTTP API."""
+    """Send a formatted message to Telegram Bot via HTTP API using HTML parse mode."""
     token = bot_token or CFG["TELEGRAM_BOT_TOKEN"]
     cid = chat_id or CFG["TELEGRAM_CHAT_ID"]
 
     if not token or not cid or token == "your_telegram_bot_token_here":
-        print("[!] Telegram credentials missing! Please configure TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env")
+        log("[!] Telegram credentials missing! Please configure TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env")
         return False
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {
         "chat_id": cid,
         "text": text,
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
 
@@ -128,8 +194,8 @@ def send_telegram_message(text: str, bot_token: str = None, chat_id: str = None)
             return res_json.get("ok", False)
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode()
-        print(f"[!] Telegram API error ({e.code}): {err_msg}")
-        # If Markdown parsing failed, attempt sending as plain text
+        log(f"[!] Telegram API error ({e.code}): {err_msg}")
+        # Fallback to plain text if HTML parsing encounters any unexpected issue
         if "can't parse entities" in err_msg.lower():
             try:
                 payload.pop("parse_mode", None)
@@ -141,29 +207,30 @@ def send_telegram_message(text: str, bot_token: str = None, chat_id: str = None)
                 pass
         return False
     except Exception as e:
-        print(f"[!] Network error sending to Telegram: {e}")
+        log(f"[!] Network error sending to Telegram: {e}")
         return False
 
 
 def chunk_and_send_deals(deal_items: list, bot_token: str = None, chat_id: str = None) -> int:
     """
     Format deals into exact 3-line blocks separated by \\n\\n,
-    chunk them safely within Telegram's 4096 char limit, and send.
+    chunk them safely within Telegram's 4096 char limit, and send using HTML.
     """
     if not deal_items:
         return 0
 
     deal_blocks = []
     for d in deal_items:
-        title = d["title"]
+        title = html.escape(d["title"])
         sp_str = str(int(d["sp"])) if float(d["sp"]).is_integer() else f"{d['sp']:.2f}"
         mrp_str = str(int(d["mrp"])) if float(d["mrp"]).is_integer() else f"{d['mrp']:.2f}"
         disc_str = str(int(d["disc"]))
+        escaped_url = html.escape(d["url"], quote=True)
 
         block = (
             f"🛒 {title}\n"
             f"💰 ₹{sp_str}  (MRP: ₹{mrp_str}) || {disc_str}% OFF\n"
-            f"🔗 [Open on BigBasket]({d['url']})"
+            f'🔗 <a href="{escaped_url}">Open on BigBasket</a>'
         )
         deal_blocks.append(block)
 
@@ -188,9 +255,9 @@ def chunk_and_send_deals(deal_items: list, bot_token: str = None, chat_id: str =
         ok = send_telegram_message(msg, bot_token, chat_id)
         if ok:
             sent_count += 1
-            print(f"[OK] Sent Telegram message batch [{idx + 1}/{len(messages)}]")
+            log(f"[OK] Sent Telegram message batch [{idx + 1}/{len(messages)}]")
         else:
-            print(f"[!] Failed to send Telegram message batch [{idx + 1}/{len(messages)}]")
+            log(f"[!] Failed to send Telegram message batch [{idx + 1}/{len(messages)}]")
         time.sleep(1)
 
     return sent_count
@@ -221,7 +288,7 @@ def save_deals_history(history: dict):
             os.remove(HISTORY_FILE)
         os.rename(temp_file, HISTORY_FILE)
     except Exception as e:
-        print(f"[!] Failed to save history: {e}")
+        log(f"[!] Failed to save history: {e}")
 
 
 def filter_deals_with_cooloff(scanned_deals: list, today_str: str = None) -> tuple:
@@ -231,6 +298,9 @@ def filter_deals_with_cooloff(scanned_deals: list, today_str: str = None) -> tup
     2. If an item stays at the same discount for the second day, hide it from sending for 15 days.
     3. If the discount changes, send immediately.
     4. Do not repeat identical sends on the same calendar day.
+
+    Returns (deals_to_send, updated_history).
+    History is NOT committed to disk here; caller commits only after successful send.
     """
     if today_str is None:
         today_str = date.today().isoformat()
@@ -275,7 +345,7 @@ def filter_deals_with_cooloff(scanned_deals: list, today_str: str = None) -> tup
         record["url"] = item["url"]
         record["last_seen"] = today_str
 
-        # CASE 1: Discount changed! (e.g. 50% -> 60% or vice versa)
+        # CASE 1: Discount changed! (e.g. 50% -> 70% or vice versa) -> Alert immediately
         if curr_disc != prev_disc:
             record["disc"] = curr_disc
             record["first_seen"] = today_str
@@ -288,226 +358,366 @@ def filter_deals_with_cooloff(scanned_deals: list, today_str: str = None) -> tup
         # Discount is unchanged from here on
         # CASE 2: Checked multiple times within the SAME day
         if last_sent == today_str:
-            # Already sent today; don't re-send during afternoon/evening scans
             continue
 
-        # CASE 3: It's a new day! Check consecutive days
-        is_next_day = (last_seen != today_str)
-        if is_next_day:
-            consec_days += 1
-            record["consecutive_days_at_same_disc"] = consec_days
-
-        # Check suppression window
+        # Check suppression window FIRST before counting consecutive days
         if suppressed_until:
-            supp_date = date.fromisoformat(suppressed_until)
-            if today_dt < supp_date:
-                # Still within 15-day cooloff period
-                continue
-            else:
-                # 15-day cooloff expired! Re-send deal
+            try:
+                supp_date = date.fromisoformat(suppressed_until)
+                if today_dt < supp_date:
+                    # Still within 15-day cooloff period
+                    continue
+                else:
+                    # 15-day cooloff expired! Re-send deal
+                    record["suppressed_until"] = None
+                    record["consecutive_days_at_same_disc"] = 1
+                    record["last_sent"] = today_str
+                    deals_to_send.append(item)
+                    continue
+            except Exception:
                 record["suppressed_until"] = None
-                record["consecutive_days_at_same_disc"] = 1
-                record["last_sent"] = today_str
-                deals_to_send.append(item)
-                continue
+
+        # CASE 3: It's a new calendar day! Verify consecutive day progression
+        try:
+            last_seen_dt = date.fromisoformat(last_seen)
+        except Exception:
+            last_seen_dt = today_dt
+
+        if last_seen != today_str:
+            is_consecutive_day = (last_seen_dt == today_dt - timedelta(days=1))
+            if is_consecutive_day:
+                consec_days += 1
+            else:
+                consec_days = 1
+            record["consecutive_days_at_same_disc"] = consec_days
 
         # CASE 4: Second day at the SAME discount -> Suppress for 15 days!
         if consec_days >= 2:
             supp_target = (today_dt + timedelta(days=15)).isoformat()
             record["suppressed_until"] = supp_target
-            # Suppress from sending today
             continue
 
-        # Otherwise send (e.g. single day send)
+        # Otherwise send (first day or refreshed send)
         record["last_sent"] = today_str
         deals_to_send.append(item)
 
-    save_deals_history(history)
     return deals_to_send, history
 
 
 # ==============================================================================
-# Headless Background Scanner (Off-screen Playwright Engine)
+# Product Parsing & Out-Of-Stock Filtering
 # ==============================================================================
 
-def scan_deals_headless() -> list:
+def parse_product_node(p: dict, cname: str, min_discount: int):
     """
-    Launches Microsoft Edge completely off-screen via Playwright,
-    fetches the assigned categories safely through page context, and returns deals.
+    Parses a single BigBasket product dict (top-level or child variant)
+    and applies price, discount, and out-of-stock validation.
+    """
+    if not p or not isinstance(p, dict):
+        return None
+
+    # Filter out-of-stock items thoroughly
+    avail = p.get("availability") or {}
+    if (
+        avail.get("is_available") is False
+        or str(avail.get("avail_status")) in ("002", "000")
+        or avail.get("button_state") in ("OUT_OF_STOCK", "NOT_AVAILABLE", "COMING_SOON")
+    ):
+        return None
+
+    pricing = p.get("pricing") or {}
+    disc_info = pricing.get("discount") or {}
+    mrp = float(disc_info.get("mrp") or pricing.get("mrp") or p.get("mrp") or 0)
+    sp = float(disc_info.get("prim_price", {}).get("sp") or pricing.get("sp") or p.get("sp") or 0)
+
+    if sp <= 0 and mrp > 0:
+        sp = mrp
+    disc = round(((mrp - sp) / mrp) * 100) if mrp > 0 and sp > 0 else 0
+
+    if disc < min_discount:
+        return None
+
+    brand = (p.get("brand") or {}).get("name", "").strip() or p.get("p_brand", "").strip()
+    desc = (p.get("desc") or p.get("p_desc") or p.get("name") or "").strip()
+    w = (p.get("w") or p.get("pack_desc") or "").strip()
+
+    title_parts = []
+    if brand and brand.lower() not in desc.lower():
+        title_parts.append(brand)
+    if desc:
+        title_parts.append(desc)
+    if w and w.lower() not in desc.lower():
+        title_parts.append(f"({w})")
+    full_title = " ".join(title_parts).strip() or "Product"
+
+    abs_url = p.get("absolute_url", "")
+    if abs_url.startswith("http"):
+        url = abs_url
+    elif abs_url:
+        url = f"https://www.bigbasket.com{abs_url}"
+    else:
+        url = f"https://www.bigbasket.com/pd/{p.get('id', '')}"
+
+    return {
+        "id": str(p.get("id")),
+        "title": full_title,
+        "brand": brand,
+        "desc": desc,
+        "mrp": mrp,
+        "sp": sp,
+        "disc": disc,
+        "url": url,
+        "category": cname
+    }
+
+
+# ==============================================================================
+# Headless Background Scanner (Off-screen Playwright Engine with WAF Defense)
+# ==============================================================================
+
+def scan_deals_headless(categories: list = None) -> list:
+    """
+    Launches Microsoft Edge off-screen via Playwright,
+    evades Akamai Bot Manager using dynamic Referer spoofing, session tracker tokens,
+    human mouse/wheel telemetry, and adaptive pacing, and returns live deals.
     """
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print("[!] Playwright is required. Run: python -m pip install playwright")
+        log("[!] Playwright is required. Run: python -m pip install playwright")
         return []
+
+    if categories is None:
+        categories = ASSIGNED_CATEGORIES
 
     min_discount = CFG.get("MIN_DISCOUNT", 50)
     profile_dir = CFG.get("EDGE_PROFILE_DIR", os.path.expandvars(r"%LOCALAPPDATA%\bb_bot_profile"))
     os.makedirs(profile_dir, exist_ok=True)
 
-    print(f"[*] Starting silent background scan for {len(ASSIGNED_CATEGORIES)} categories...")
-    print(f"[*] Discount filter: >= {min_discount}% OFF")
+    log(f"[*] Starting silent background scan for {len(categories)} categories...")
+    log(f"[*] Discount filter threshold: >= {min_discount}% OFF")
 
     all_deals = []
+    seen_ids = set()
 
-    with sync_playwright() as p:
-        # Launch persistent context off-screen (-32000, -32000) so NO window is visible
-        context = p.chromium.launch_persistent_context(
+    with sync_playwright() as playwright_engine:
+        # Launch persistent context off-screen (-32000, -32000) so NO window is visible,
+        # while masking screen coordinates via add_init_script so bmak never sees off-screen coords.
+        context = playwright_engine.chromium.launch_persistent_context(
             user_data_dir=profile_dir,
             channel="msedge",
             headless=False,
             args=[
                 "--window-position=-32000,-32000",
-                "--window-size=1280,800",
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox"
-            ]
+                "--window-size=1920,1080",
+                "--disable-blink-features=AutomationControlled"
+            ],
+            viewport={"width": 1920, "height": 1080}
         )
+
+        # Mask off-screen coordinates in JavaScript
+        context.add_init_script("""
+            Object.defineProperty(window, 'screenX', { get: () => 0 });
+            Object.defineProperty(window, 'screenY', { get: () => 0 });
+            Object.defineProperty(window, 'screenLeft', { get: () => 0 });
+            Object.defineProperty(window, 'screenTop', { get: () => 0 });
+        """)
+
         page = context.pages[0] if context.pages else context.new_page()
 
-        try:
-            print("[*] Loading BigBasket session in background...")
-            page.goto("https://www.bigbasket.com/cl/dairy/?nc=nb", wait_until="networkidle", timeout=40000)
-            time.sleep(2)
+        # Block heavy static media assets to keep scan extremely fast and bandwidth-minimal,
+        # without affecting scripts or Akamai security sensors
+        page.route(
+            re.compile(r"\.(png|jpg|jpeg|webp|gif|svg|woff|woff2|ttf|mp4)(\?.*)?$", re.IGNORECASE),
+            lambda route: route.abort()
+        )
 
-            for idx, cat in enumerate(ASSIGNED_CATEGORIES):
+        try:
+            log("[*] Establishing BigBasket session in background...")
+            page.goto("https://www.bigbasket.com/cl/dairy/?nc=nb", wait_until="domcontentloaded", timeout=40000)
+            time.sleep(3)
+
+            # Reusable JS function executed inside the authenticated browser context
+            js_fetch_category = """
+            async (slug) => {
+                try {
+                    // Update location so browser sends authentic matching Referer header
+                    window.history.pushState({}, '', '/cl/' + slug + '/?nc=nb');
+
+                    // Extract session tracker UUID
+                    let tracker = '';
+                    try {
+                        for (let i = 0; i < sessionStorage.length; i++) {
+                            const k = sessionStorage.key(i);
+                            if (k && k.toLowerCase().includes('tracker')) {
+                                const v = sessionStorage.getItem(k);
+                                if (v && v.length > 10) { tracker = v; break; }
+                            }
+                        }
+                    } catch(_) {}
+                    if (!tracker) {
+                        tracker = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('bb-' + Date.now());
+                    }
+
+                    const res = await fetch(`https://www.bigbasket.com/listing-svc/v2/products?type=pc&slug=${slug}&page=1&sort=dphtl`, {
+                        headers: {
+                            "accept": "application/json",
+                            "x-channel": "BB-WEB",
+                            "x-entry-context": "bb-b2c",
+                            "x-entry-context-id": "100",
+                            "x-tracker": tracker
+                        }
+                    });
+
+                    if (!res.ok) return { status: res.status, products: [] };
+                    const data = await res.json();
+                    let prods = [];
+                    for (const t of (data.tabs || [])) {
+                        const p_list = t?.product_info?.products || [];
+                        if (p_list.length) prods.push(...p_list);
+                    }
+                    return { status: 200, products: prods };
+                } catch(e) {
+                    return { status: 0, error: e.message, products: [] };
+                }
+            }
+            """
+
+            for idx, cat in enumerate(categories):
                 slug = cat["slug"]
                 cname = cat["name"]
-                print(f"[*] Scanning [{idx + 1}/{len(ASSIGNED_CATEGORIES)}]: {cname}...")
+                log(f"[*] Scanning [{idx + 1}/{len(categories)}]: {cname}...")
 
-                js_fetch = f"""
-                async () => {{
-                    try {{
-                        const res = await fetch("https://www.bigbasket.com/listing-svc/v2/products?type=pc&slug={slug}&page=1&sort=dphtl", {{
-                            headers: {{
-                                "accept": "application/json",
-                                "x-channel": "BB-WEB",
-                                "x-entry-context": "bb-b2c",
-                                "x-entry-context-id": "100"
-                            }}
-                        }});
-                        if (!res.ok) return {{ status: res.status, products: [] }};
-                        const data = await res.json();
-                        let prods = [];
-                        for (const t of (data.tabs || [])) {{
-                            const p_list = t?.product_info?.products || [];
-                            if (p_list.length) prods.push(...p_list);
-                        }}
-                        return {{ status: 200, products: prods }};
-                    }} catch(e) {{
-                        return {{ status: 0, error: e.message, products: [] }};
-                    }}
-                }}
-                """
+                # Micro-batching pause every 5 categories
+                if idx > 0 and idx % 5 == 0:
+                    pause_sec = random.uniform(12.0, 18.0)
+                    log(f"[*] Batch milestone ({idx} categories scanned). Taking a human pause ({pause_sec:.1f}s)...")
+                    for _ in range(2):
+                        page.mouse.move(random.randint(100, 1200), random.randint(100, 700), steps=6)
+                        time.sleep(0.5)
+                    time.sleep(pause_sec - 1.0)
 
-                res = page.evaluate(js_fetch)
-                prods_raw = res.get("products", [])
+                # Human behavioral telemetry before each category fetch
+                for _ in range(random.randint(2, 3)):
+                    page.mouse.move(random.randint(100, 1200), random.randint(100, 700), steps=5)
+                page.mouse.wheel(0, random.choice([-120, 120]))
+                time.sleep(random.uniform(0.3, 0.7))
 
-                cat_deals = 0
-                for p in prods_raw:
-                    pricing = p.get("pricing", {})
-                    disc_info = pricing.get("discount", {})
-                    mrp = float(disc_info.get("mrp") or pricing.get("mrp") or 0)
-                    sp = float(disc_info.get("prim_price", {}).get("sp") or pricing.get("sp") or 0)
+                # Fetch category with retries for 429 / 503
+                data = None
+                max_retries = 2
+                status = 0
+                for attempt in range(max_retries + 1):
+                    res = page.evaluate(js_fetch_category, slug)
+                    status = res.get("status", 0)
 
-                    if sp <= 0 and mrp > 0:
-                        sp = mrp
-                    disc = round(((mrp - sp) / mrp) * 100) if mrp > 0 and sp > 0 else 0
-
-                    if disc < min_discount:
-                        continue
-
-                    # Filter out-of-stock items
-                    avail = p.get("availability", {})
-                    if avail.get("avail_status") == "002" or avail.get("is_available") is False:
-                        continue
-
-                    brand = (p.get("brand") or {}).get("name", "").strip()
-                    desc = p.get("desc", "").strip()
-                    w = p.get("w", "").strip()
-
-                    title_parts = []
-                    if brand and brand.lower() not in desc.lower():
-                        title_parts.append(brand)
-                    title_parts.append(desc)
-                    if w and w.lower() not in desc.lower():
-                        title_parts.append(f"({w})")
-                    full_title = " ".join(title_parts).strip()
-
-                    abs_url = p.get("absolute_url", "")
-                    if abs_url.startswith("http"):
-                        url = abs_url
-                    elif abs_url:
-                        url = f"https://www.bigbasket.com{abs_url}"
+                    if status == 200:
+                        data = res.get("products", [])
+                        break
+                    elif status in (429, 503):
+                        wait_sec = 30 + random.uniform(5, 15)
+                        log(f"[!] Rate limited (HTTP {status}) on {cname}. Pausing {wait_sec:.1f}s (attempt {attempt + 1}/{max_retries + 1})...")
+                        time.sleep(wait_sec)
+                    elif status == 403:
+                        log(f"[!] Akamai WAF 403 Access Denied on {cname}!")
+                        log("[*] Attempting page reload to refresh Akamai session...")
+                        try:
+                            page.goto("https://www.bigbasket.com/", wait_until="domcontentloaded", timeout=40000)
+                            time.sleep(15)
+                            for _ in range(3):
+                                page.mouse.move(random.randint(100, 1200), random.randint(100, 700), steps=6)
+                            res_retry = page.evaluate(js_fetch_category, slug)
+                            if res_retry.get("status") == 200:
+                                log(f"[OK] Recovery successful for {cname}!")
+                                data = res_retry.get("products", [])
+                                break
+                        except Exception as e:
+                            log(f"[!] Recovery failed: {e}")
+                        log("[!] Akamai 403 block persists. Gracefully halting scan to protect IP.")
+                        break
                     else:
-                        url = f"https://www.bigbasket.com/pd/{p.get('id', '')}"
+                        log(f"[!] HTTP {status} on {cname}: {res.get('error', 'Unknown')}")
+                        break
 
-                    all_deals.append({
-                        "id": p.get("id"),
-                        "title": full_title,
-                        "brand": brand,
-                        "desc": desc,
-                        "mrp": mrp,
-                        "sp": sp,
-                        "disc": disc,
-                        "url": url,
-                        "category": cname
-                    })
-                    cat_deals += 1
+                if status == 403 and data is None:
+                    # Halt further scanning and process deals collected so far
+                    break
 
-                print(f"[OK] Found {cat_deals} deals (>= {min_discount}% OFF) in {cname}")
-                time.sleep(2.0 + (idx * 0.5))
+                # Parse top-level products & variant children
+                if data:
+                    cat_deals = 0
+                    for prod in data:
+                        # Top-level product
+                        item = parse_product_node(prod, cname, min_discount)
+                        if item and item["id"] not in seen_ids:
+                            seen_ids.add(item["id"])
+                            all_deals.append(item)
+                            cat_deals += 1
+
+                        # Variant children
+                        for child in (prod.get("children") or []):
+                            c_item = parse_product_node(child, cname, min_discount)
+                            if c_item and c_item["id"] not in seen_ids:
+                                seen_ids.add(c_item["id"])
+                                all_deals.append(c_item)
+                                cat_deals += 1
+
+                    log(f"[OK] Found {cat_deals} deals (>= {min_discount}% OFF) in {cname}")
+
+                # Jitter delay between categories
+                if idx < len(categories) - 1:
+                    delay = random.uniform(3.2, 5.8)
+                    time.sleep(delay)
 
         finally:
             context.close()
-            print("[*] Background browser closed cleanly.")
+            log("[*] Background browser closed cleanly.")
 
-    # Deduplicate deals by ID
-    seen_ids = set()
-    unique_deals = []
-    for d in all_deals:
-        if d["id"] not in seen_ids:
-            seen_ids.add(d["id"])
-            unique_deals.append(d)
-
-    unique_deals.sort(key=lambda x: x["disc"], reverse=True)
-    return unique_deals
+    all_deals.sort(key=lambda x: x["disc"], reverse=True)
+    return all_deals
 
 
 # ==============================================================================
 # Core Execution Workflow
 # ==============================================================================
 
-def execute_scan_and_alert():
+def execute_scan_and_alert(categories: list = None):
     """Perform full background scan, apply 15-day cooloff, and send to Telegram."""
-    print("=" * 65)
-    print("  BigBasket Telegram Sniper - Headless Background Execution")
-    print("=" * 65)
-    print(f"[*] Execution time: {datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}")
+    log("=" * 65)
+    log("  BigBasket Telegram Sniper - Headless Background Execution")
+    log("=" * 65)
+    log(f"[*] Execution time: {datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}")
 
-    scanned_deals = scan_deals_headless()
-    print(f"\n[*] Total live deals found: {len(scanned_deals)}")
+    scanned_deals = scan_deals_headless(categories)
+    log(f"\n[*] Total live deals found: {len(scanned_deals)}")
 
     if not scanned_deals:
-        print("[*] No deals found matching filter threshold today.")
+        log("[*] No deals found matching filter threshold today.")
         return
 
-    deals_to_send, _ = filter_deals_with_cooloff(scanned_deals)
-    print(f"[*] Deals eligible to alert (after cooloff/dedup): {len(deals_to_send)}")
+    deals_to_send, updated_history = filter_deals_with_cooloff(scanned_deals)
+    log(f"[*] Deals eligible to alert (after cooloff/dedup): {len(deals_to_send)}")
 
     if not deals_to_send:
-        print("[*] All deals are either already sent today or suppressed by the 15-day rule.")
+        # Commit updated metadata (last_seen updates)
+        save_deals_history(updated_history)
+        log("[*] All deals are either already sent today or suppressed by the 15-day rule.")
         return
 
-    print("\n[*] Sending deals to Telegram...")
+    log("\n[*] Sending deals to Telegram...")
     batches = chunk_and_send_deals(deals_to_send)
-    print(f"[OK] Done! Delivered {len(deals_to_send)} deals across {batches} Telegram message(s).")
+    if batches > 0:
+        save_deals_history(updated_history)
+        log(f"[OK] Done! Delivered {len(deals_to_send)} deals across {batches} Telegram message(s).")
+    else:
+        log("[!] Warning: Telegram send failed or 0 batches delivered. History not committed to allow retry.")
 
 
 def test_telegram_alert():
     """Send a test deal to verify Telegram bot setup."""
-    print("[*] Testing Telegram bot credentials...")
+    log("[*] Testing Telegram bot credentials...")
     sample_deal = [{
+        "id": "test_99999",
         "title": "Fortune Sunlite Refined Sunflower Oil (1L)",
         "sp": 85,
         "mrp": 175,
@@ -516,9 +726,9 @@ def test_telegram_alert():
     }]
     count = chunk_and_send_deals(sample_deal)
     if count > 0:
-        print("[OK] Test message delivered successfully to your Telegram chat!")
+        log("[OK] Test message delivered successfully to your Telegram chat!")
     else:
-        print("[!] Test failed. Please check your BOT_TOKEN and CHAT_ID in .env")
+        log("[!] Test failed. Please check your BOT_TOKEN and CHAT_ID in .env")
 
 
 # ==============================================================================
@@ -533,20 +743,21 @@ def install_task():
     if not os.path.exists(pythonw_path):
         pythonw_path = sys.executable
 
-    print(f"[*] Registering background scheduled task: {TASK_NAME}")
-    print("[*] Schedule: 4 Times Daily (12:00 AM, 4:00 PM, 7:00 PM, 11:30 PM)")
-    print(f"[*] Executable: {pythonw_path}")
+    log(f"[*] Registering background scheduled task: {TASK_NAME}")
+    log("[*] Schedule: 4 Times Daily (12:00 AM, 4:00 PM, 7:00 PM, 11:30 PM)")
+    log(f"[*] Executable: {pythonw_path}")
+    log(f"[*] Working Directory: {SCRIPT_DIR}")
 
     ps_script = f"""
     $ErrorActionPreference = 'Stop'
-    $action = New-ScheduledTaskAction -Execute '{pythonw_path}' -Argument '"{script_path}" --run-now'
+    $action = New-ScheduledTaskAction -Execute '{pythonw_path}' -Argument '"{script_path}" --run-now' -WorkingDirectory '{SCRIPT_DIR}'
     $triggers = @(
         $(New-ScheduledTaskTrigger -Daily -At "00:00"),
         $(New-ScheduledTaskTrigger -Daily -At "16:00"),
         $(New-ScheduledTaskTrigger -Daily -At "19:00"),
         $(New-ScheduledTaskTrigger -Daily -At "23:30")
     )
-    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -WakeToRun
     Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $action -Trigger $triggers -Settings $settings -Force
     """
 
@@ -556,20 +767,21 @@ def install_task():
             capture_output=True, text=True, check=False
         )
         if res.returncode == 0:
-            print(f"\n[OK] SUCCESS: Background task '{TASK_NAME}' registered successfully!")
-            print("    Runs completely hidden in the background without popping up any browser window at:")
-            print("      • 12:00 AM  (Midnight Deals)")
-            print("      •  4:00 PM  (Afternoon Restock)")
-            print("      •  7:00 PM  (Evening Flash Sales)")
-            print("      • 11:30 PM  (Pre-Midnight Clearance)")
-            print("\n    - Test immediately with : python bb_telegram_sniper.py --now")
-            print("    - Test Telegram alert   : python bb_telegram_sniper.py --test-telegram")
-            print("    - Check status with     : python bb_telegram_sniper.py --status-task")
-            print("    - Remove anytime with   : python bb_telegram_sniper.py --remove-task\n")
+            log(f"\n[OK] SUCCESS: Background task '{TASK_NAME}' registered successfully!")
+            log("    Runs completely hidden in the background without popping up any browser window at:")
+            log("      • 12:00 AM  (Midnight Deals)")
+            log("      •  4:00 PM  (Afternoon Restock)")
+            log("      •  7:00 PM  (Evening Flash Sales)")
+            log("      • 11:30 PM  (Pre-Midnight Clearance)")
+            log("\n    - Test immediately with : python bb_telegram_sniper.py --now")
+            log("    - Test Telegram alert   : python bb_telegram_sniper.py --test-telegram")
+            log("    - Check status with     : python bb_telegram_sniper.py --status-task")
+            log("    - View execution log at : bb_sniper.log")
+            log("    - Remove anytime with   : python bb_telegram_sniper.py --remove-task\n")
         else:
-            print(f"[X] Error creating task:\n{res.stderr.strip() or res.stdout.strip()}")
+            log(f"[X] Error creating task:\n{res.stderr.strip() or res.stdout.strip()}")
     except Exception as e:
-        print(f"[!] Execution failed: {e}")
+        log(f"[!] Execution failed: {e}")
 
 
 def remove_task():
@@ -577,9 +789,9 @@ def remove_task():
     cmd = ["schtasks", "/delete", "/tn", TASK_NAME, "/f"]
     res = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if res.returncode == 0:
-        print(f"[OK] Scheduled task '{TASK_NAME}' removed.")
+        log(f"[OK] Scheduled task '{TASK_NAME}' removed.")
     else:
-        print(f"[!] Task '{TASK_NAME}' was not found or could not be removed.")
+        log(f"[!] Task '{TASK_NAME}' was not found or could not be removed.")
 
 
 def status_task():
@@ -588,19 +800,19 @@ def status_task():
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if res.returncode == 0:
-            print(f"[OK] Task '{TASK_NAME}' is currently ACTIVE.\n")
-            print("  Configured Schedule: 4 Times Daily (12:00 AM, 4:00 PM, 7:00 PM, 11:30 PM)\n")
+            log(f"[OK] Task '{TASK_NAME}' is currently ACTIVE.\n")
+            log("  Configured Schedule: 4 Times Daily (12:00 AM, 4:00 PM, 7:00 PM, 11:30 PM)\n")
             for line in res.stdout.splitlines():
                 line_str = line.strip()
                 if any(line_str.startswith(k) for k in [
                     "TaskName:", "Status:", "Next Run Time:", "Last Run Time:", "Last Result:", "Schedule Type:", "Start Time:"
                 ]):
-                    print(f"  {line_str}")
+                    log(f"  {line_str}")
         else:
-            print(f"[!] Task '{TASK_NAME}' is NOT registered.")
-            print("    Run 'python bb_telegram_sniper.py --install-task' to enable scheduled alerts.")
+            log(f"[!] Task '{TASK_NAME}' is NOT registered.")
+            log("    Run 'python bb_telegram_sniper.py --install-task' to enable scheduled alerts.")
     except Exception as e:
-        print(f"[!] Error querying task: {e}")
+        log(f"[!] Error querying task: {e}")
 
 
 # ==============================================================================
@@ -612,6 +824,7 @@ def main():
         description="BigBasket Telegram Sniper - Headless Background Deal Tracker"
     )
     parser.add_argument("--now", "--run-now", action="store_true", help="Execute background scan and alert Telegram now")
+    parser.add_argument("--all-cats", action="store_true", help="Scan all 20 categories instead of default assigned categories")
     parser.add_argument("--test-telegram", action="store_true", help="Send a test message to Telegram bot")
     parser.add_argument("--install-task", action="store_true", help="Register 4x daily schedule in Windows Task Scheduler")
     parser.add_argument("--remove-task", action="store_true", help="Remove scheduled task")
@@ -620,8 +833,10 @@ def main():
 
     args = parser.parse_args()
 
+    selected_categories = ALL_CATEGORIES if args.all_cats else ASSIGNED_CATEGORIES
+
     if args.now:
-        execute_scan_and_alert()
+        execute_scan_and_alert(selected_categories)
     elif args.test_telegram:
         test_telegram_alert()
     elif args.install_task:
@@ -633,20 +848,21 @@ def main():
     elif args.reset_history:
         if os.path.exists(HISTORY_FILE):
             os.remove(HISTORY_FILE)
-            print("[OK] Deals history cleared. Next scan will treat all deals as fresh.")
+            log("[OK] Deals history cleared. Next scan will treat all deals as fresh.")
         else:
-            print("[*] No deals history found to clear.")
+            log("[*] No deals history found to clear.")
     else:
         print("=" * 65)
         print("  BigBasket Telegram Sniper (Headless Background Automation)")
         print("=" * 65)
         print("Available options:")
-        print("  1) python bb_telegram_sniper.py --now            -> Run background scan and alert now")
-        print("  2) python bb_telegram_sniper.py --test-telegram  -> Send test deal card to Telegram")
-        print("  3) python bb_telegram_sniper.py --install-task   -> Register 4x daily schedule in Windows")
-        print("  4) python bb_telegram_sniper.py --status-task    -> Check task status & next run times")
-        print("  5) python bb_telegram_sniper.py --reset-history  -> Reset deals history database")
-        print("  6) python bb_telegram_sniper.py --remove-task    -> Remove scheduled task")
+        print("  1) python bb_telegram_sniper.py --now            -> Run background scan for assigned categories")
+        print("  2) python bb_telegram_sniper.py --now --all-cats -> Run background scan for all 20 categories")
+        print("  3) python bb_telegram_sniper.py --test-telegram  -> Send test deal card to Telegram")
+        print("  4) python bb_telegram_sniper.py --install-task   -> Register 4x daily schedule in Windows")
+        print("  5) python bb_telegram_sniper.py --status-task    -> Check task status & next run times")
+        print("  6) python bb_telegram_sniper.py --reset-history  -> Reset deals history database")
+        print("  7) python bb_telegram_sniper.py --remove-task    -> Remove scheduled task")
         print("-" * 65)
         parser.print_help()
 
