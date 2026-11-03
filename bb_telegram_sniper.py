@@ -6,6 +6,8 @@ Scans BigBasket for steep discounts (>=50% or >=70% OFF) and alerts via Telegram
 
 Features:
 - Completely Invisible Execution (off-screen Edge instance with masked screen coordinates)
+- Pincode & Dark-Store Lock: Automatically enforces delivery pincode (e.g. 560045) in browser session
+- Strict Out-of-Stock (OOS) Filtering: Rejects products with avail_status != '001', 'Notify Me', not_for_sale, etc.
 - Upgraded Akamai WAF Evasion:
     * Aborts heavy media/fonts while preserving JS sensors
     * Spoofs dynamic Referer via window.history.pushState for every category
@@ -14,7 +16,6 @@ Features:
     * Micro-batching and adaptive jitter between categories
     * Graceful 429/503 backoff and 403 recovery
 - Variant Product Parsing: Scans both top-level products and nested variant children
-- Strengthened Out-Of-Stock (OOS) Filtering
 - HTML Telegram Formatting: 100% immune to entity parse errors
 - Deduplication & 15-Day Cooloff Rule:
     * Sends new deals on Day 1.
@@ -95,7 +96,7 @@ def load_env():
         "TELEGRAM_BOT_TOKEN": "",
         "TELEGRAM_CHAT_ID": "",
         "MIN_DISCOUNT": 50,
-        "PINCODE": "560001",
+        "PINCODE": "560045",
         "EDGE_PROFILE_DIR": os.path.expandvars(r"%LOCALAPPDATA%\bb_bot_profile")
     }
     if os.path.exists(ENV_FILE):
@@ -195,7 +196,6 @@ def send_telegram_message(text: str, bot_token: str = None, chat_id: str = None)
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode()
         log(f"[!] Telegram API error ({e.code}): {err_msg}")
-        # Fallback to plain text if HTML parsing encounters any unexpected issue
         if "can't parse entities" in err_msg.lower():
             try:
                 payload.pop("parse_mode", None)
@@ -405,24 +405,125 @@ def filter_deals_with_cooloff(scanned_deals: list, today_str: str = None) -> tup
 
 
 # ==============================================================================
-# Product Parsing & Out-Of-Stock Filtering
+# Location & Pincode Enforcement
+# ==============================================================================
+
+def ensure_pincode_set(page, target_pincode: str) -> bool:
+    """
+    Verifies that the BigBasket browser session is locked to the configured pincode (e.g. 560045).
+    If mismatched or missing, uses the location autocomplete search to lock into the authentic darkstore.
+    """
+    target_pin = str(target_pincode or "").strip()
+    if not target_pin:
+        return True
+
+    cookies = page.context.cookies()
+    curr_pin = next((c["value"] for c in cookies if c["name"] == "_bb_pin_code"), "")
+    if curr_pin == target_pin:
+        log(f"[OK] Delivery location verified: Pincode {target_pin} is active.")
+        return True
+
+    log(f"[*] Delivery pincode currently '{curr_pin or 'default'}'. Switching to '{target_pin}'...")
+    try:
+        # Click header location button
+        page.evaluate("""() => {
+            let btns = Array.from(document.querySelectorAll('header button, [data-headlessui-state]'));
+            let btn = btns.find(b => {
+                let t = (b.innerText || '');
+                return t.includes('Location') || t.includes('Bengaluru') || t.includes('Bangalore') || t.includes('Delivery in') || t.includes('5600');
+            });
+            if (btn) btn.click();
+        }""")
+        time.sleep(1.5)
+
+        # Check for "Click here to change" inside location popup
+        page.evaluate("""() => {
+            let changeLink = Array.from(document.querySelectorAll('button, a, span')).find(el => {
+                let t = (el.innerText || '').toLowerCase();
+                return t.includes('click here to change') || (t.includes('change') && t.includes('location'));
+            });
+            if (changeLink) changeLink.click();
+        }""")
+        time.sleep(1.0)
+
+        # Wait for input
+        inp = page.locator('input[placeholder*="area or street"]').first
+        if not inp.is_visible():
+            page.evaluate("""() => {
+                let all = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                for (let el of all) {
+                    if ((el.innerText || '').includes('Location')) { el.click(); break; }
+                }
+            }""")
+            time.sleep(1.5)
+
+        if inp.is_visible():
+            inp.fill(target_pin)
+            log(f"[*] Entered {target_pin} into location search...")
+            time.sleep(2.5)
+
+            # Click matching suggestion
+            clicked_sugg = page.evaluate("""(pin) => {
+                let items = Array.from(document.querySelectorAll('li, div, p, span')).filter(el => {
+                    let t = el.innerText || '';
+                    return t.includes(pin) && (t.includes('Bengaluru') || t.includes('Bangalore') || t.includes('India'));
+                });
+                let target = items[items.length - 1];
+                if (target) {
+                    target.click();
+                    return target.innerText.slice(0, 70);
+                }
+                return null;
+            }""", target_pin)
+            log(f"[OK] Selected location suggestion: {clicked_sugg}")
+            time.sleep(3.5)
+
+        # Verify new cookie
+        new_cookies = page.context.cookies()
+        new_pin = next((c["value"] for c in new_cookies if c["name"] == "_bb_pin_code"), "")
+        if new_pin == target_pin:
+            log(f"[OK] Successfully locked delivery session to pincode: {new_pin}")
+            return True
+        else:
+            log(f"[!] Warning: Active pincode is '{new_pin}', expected '{target_pin}'.")
+            return False
+    except Exception as e:
+        log(f"[!] Error setting delivery pincode: {e}")
+        return False
+
+
+# ==============================================================================
+# Product Parsing & Strict Out-Of-Stock Filtering
 # ==============================================================================
 
 def parse_product_node(p: dict, cname: str, min_discount: int):
     """
     Parses a single BigBasket product dict (top-level or child variant)
-    and applies price, discount, and out-of-stock validation.
+    and applies strict price, discount, and out-of-stock validation.
     """
     if not p or not isinstance(p, dict):
         return None
 
-    # Filter out-of-stock items thoroughly
+    # Filter out-of-stock items with strict checks
     avail = p.get("availability") or {}
+    avail_status = str(avail.get("avail_status", "")).strip()
+    btn = str(avail.get("button") or avail.get("button_state") or "").strip().lower()
+    not_for_sale = avail.get("not_for_sale") is True
+    is_available = avail.get("is_available")
+
+    # In BigBasket: "001" is Available / In Stock.
+    # Anything other than "001" (such as "000", "002") or "Notify Me" is OUT OF STOCK.
     if (
-        avail.get("is_available") is False
-        or str(avail.get("avail_status")) in ("002", "000")
-        or avail.get("button_state") in ("OUT_OF_STOCK", "NOT_AVAILABLE", "COMING_SOON")
+        avail_status != "001"
+        or is_available is False
+        or not_for_sale
+        or btn in ("notify me", "out_of_stock", "not_available", "coming_soon", "sold out")
     ):
+        return None
+
+    # Check inventory node if present
+    inv = p.get("inv_info") or p.get("inventory") or {}
+    if inv.get("is_out_of_stock") is True or str(inv.get("stock_status", "")).strip() in ("000", "002"):
         return None
 
     pricing = p.get("pricing") or {}
@@ -478,8 +579,8 @@ def parse_product_node(p: dict, cname: str, min_discount: int):
 def scan_deals_headless(categories: list = None) -> list:
     """
     Launches Microsoft Edge off-screen via Playwright,
-    evades Akamai Bot Manager using dynamic Referer spoofing, session tracker tokens,
-    human mouse/wheel telemetry, and adaptive pacing, and returns live deals.
+    locks into the authentic delivery pincode, evades Akamai Bot Manager,
+    and returns live, in-stock deals.
     """
     try:
         from playwright.sync_api import sync_playwright
@@ -491,10 +592,12 @@ def scan_deals_headless(categories: list = None) -> list:
         categories = ASSIGNED_CATEGORIES
 
     min_discount = CFG.get("MIN_DISCOUNT", 50)
+    target_pin = str(CFG.get("PINCODE", "560045")).strip()
     profile_dir = CFG.get("EDGE_PROFILE_DIR", os.path.expandvars(r"%LOCALAPPDATA%\bb_bot_profile"))
     os.makedirs(profile_dir, exist_ok=True)
 
     log(f"[*] Starting silent background scan for {len(categories)} categories...")
+    log(f"[*] Target delivery pincode: {target_pin}")
     log(f"[*] Discount filter threshold: >= {min_discount}% OFF")
 
     all_deals = []
@@ -525,8 +628,7 @@ def scan_deals_headless(categories: list = None) -> list:
 
         page = context.pages[0] if context.pages else context.new_page()
 
-        # Block heavy static media assets to keep scan extremely fast and bandwidth-minimal,
-        # without affecting scripts or Akamai security sensors
+        # Block heavy static media assets to keep scan fast and bandwidth-minimal
         page.route(
             re.compile(r"\.(png|jpg|jpeg|webp|gif|svg|woff|woff2|ttf|mp4)(\?.*)?$", re.IGNORECASE),
             lambda route: route.abort()
@@ -534,8 +636,11 @@ def scan_deals_headless(categories: list = None) -> list:
 
         try:
             log("[*] Establishing BigBasket session in background...")
-            page.goto("https://www.bigbasket.com/cl/dairy/?nc=nb", wait_until="domcontentloaded", timeout=40000)
+            page.goto("https://www.bigbasket.com/", wait_until="domcontentloaded", timeout=40000)
             time.sleep(3)
+
+            # Enforce pincode and darkstore alignment
+            ensure_pincode_set(page, target_pin)
 
             # Reusable JS function executed inside the authenticated browser context
             js_fetch_category = """
@@ -640,7 +745,6 @@ def scan_deals_headless(categories: list = None) -> list:
                         break
 
                 if status == 403 and data is None:
-                    # Halt further scanning and process deals collected so far
                     break
 
                 # Parse top-level products & variant children
@@ -662,7 +766,7 @@ def scan_deals_headless(categories: list = None) -> list:
                                 all_deals.append(c_item)
                                 cat_deals += 1
 
-                    log(f"[OK] Found {cat_deals} deals (>= {min_discount}% OFF) in {cname}")
+                    log(f"[OK] Found {cat_deals} in-stock deals (>= {min_discount}% OFF) in {cname}")
 
                 # Jitter delay between categories
                 if idx < len(categories) - 1:
@@ -689,7 +793,7 @@ def execute_scan_and_alert(categories: list = None):
     log(f"[*] Execution time: {datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}")
 
     scanned_deals = scan_deals_headless(categories)
-    log(f"\n[*] Total live deals found: {len(scanned_deals)}")
+    log(f"\n[*] Total live in-stock deals found: {len(scanned_deals)}")
 
     if not scanned_deals:
         log("[*] No deals found matching filter threshold today.")
@@ -699,7 +803,6 @@ def execute_scan_and_alert(categories: list = None):
     log(f"[*] Deals eligible to alert (after cooloff/dedup): {len(deals_to_send)}")
 
     if not deals_to_send:
-        # Commit updated metadata (last_seen updates)
         save_deals_history(updated_history)
         log("[*] All deals are either already sent today or suppressed by the 15-day rule.")
         return
